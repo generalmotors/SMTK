@@ -894,30 +894,35 @@ void PhraseModel::triggerDataChanged()
   bool expected = false;
   if (std::atomic_compare_exchange_strong(&m_pending, &expected, true))
   {
-    std::function<DescriptivePhrases()> invokeContentObserversInternal = [this]() {
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-      // Clear the "pending-timer" bit before we start signaling observers
-      // Otherwise, it is possible to miss an incoming signal that more
-      // content has changed while we are busy invoking observers.
-      m_pending.store(false);
-
-      // m_contentObservers(); // TODO: Alternative to the below?
-      auto rootPhrase = this->root();
-      if (!rootPhrase || rootPhrase->subphrases().empty())
+    std::weak_ptr<PhraseModel> weak = this->shared_from_this();
+    std::function<DescriptivePhrases()> invokeContentObserversInternal = [weak]()
+    {
+      if (auto self = weak.lock())
       {
-        return DescriptivePhrases{};
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        // Clear the "pending-timer" bit before we start signaling observers
+        // Otherwise, it is possible to miss an incoming signal that more
+        // content has changed while we are busy invoking observers.
+        self->m_pending.store(false);
+
+        // m_contentObservers(); // TODO: Alternative to the below?
+
+        auto rootPhrase = self->root();
+        if (!rootPhrase || rootPhrase->subphrases().empty())
+        {
+          return DescriptivePhrases{};
+        }
+
+        std::vector<int> i0;
+        std::vector<int> i1;
+        // It is doubtful trees with 64 levels will be useful; reserve
+        // that much space so recursion does not cause reallocation.
+        i0.reserve(64);
+        i1.reserve(64);
+
+        self->recursiveTrigger(rootPhrase, i0, i1);
       }
-
-      std::vector<int> i0;
-      std::vector<int> i1;
-      // It is doubtful trees with 64 levels will be useful; reserve
-      // that much space so recursion does not cause reallocation.
-      i0.reserve(64);
-      i1.reserve(64);
-
-      recursiveTrigger(rootPhrase, i0, i1);
-
       return DescriptivePhrases{};
     };
     std::thread runme(invokeContentObserversInternal);
