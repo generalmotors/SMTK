@@ -35,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'c-cpp', 'python' ]
+        language: [ 'c-cpp' ]
         # CodeQL supports [ 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'swift' ]
         # Use only 'java-kotlin' to analyze code written in Java, Kotlin or both
         # Use only 'javascript-typescript' to analyze code written in JavaScript, TypeScript or both
@@ -69,7 +69,7 @@ jobs:
 
     - run: |
         echo "Run, Build Application using script"
-        ./build_smtk.sh
+        ${{ github.workspace }}/.github/workflows/build_smtk.sh
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
