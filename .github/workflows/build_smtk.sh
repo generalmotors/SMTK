@@ -7,9 +7,10 @@ mkdir -p $SOURCE_DIR
 mkdir -p $INSTALL_DIR
 mkdir -p $BUILD_DIR
 
-sudo apt-get install cmake \
-    ninja \
-    build_essential \
+sudo apt update
+sudo apt install cmake \
+    ninja-build \
+    build-essential \
     libgl1-mesa-dev \
     qtbase5-dev 
 
