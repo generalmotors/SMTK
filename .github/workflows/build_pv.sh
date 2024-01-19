@@ -21,7 +21,7 @@ cmake -GNinja \
     -Dsuperbuild_install_location=$INSTALL_DIR \
     -DDEVELOPER_MODE_smtk:BOOL=ON \
     -DENABLE_cmb:BOOL=OFF         \
-    -DENABLE_cmbusersguide:BOOL=OFF \
+    -DENABLE_cmbusersguide:BOOL=OFF
 
 cmake --build $BUILD_DIR
 
