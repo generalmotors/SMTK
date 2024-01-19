@@ -12,7 +12,11 @@ sudo apt install cmake \
     ninja-build \
     build-essential \
     libgl1-mesa-dev \
-    qtbase5-dev 
+    qtbase5-dev \
+    libqt5svg5-dev \
+    qtbase5-dev-tools \
+    libqt5x11extras5-dev \
+    qtxmlpatterns5-dev-tools
 
 git clone https://gitlab.kitware.com/cmb/cmb-superbuild.git $SOURCE_DIR
 cd $SOURCE_DIR
