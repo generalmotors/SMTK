@@ -83,12 +83,18 @@ jobs:
             ninja-build \
             build-essential \
             libgl1-mesa-dev \
-            qtbase5-dev \
-            libqt5svg5-dev \
-            qtbase5-dev-tools \
+            libxt-dev \
             libqt5x11extras5-dev \
+            libqt5help5 \
+            qttools5-dev \
             qtxmlpatterns5-dev-tools \
-            libqt5help5
+            libqt5svg5-dev \
+            libopenmpi-dev \
+            libtbb-dev \
+            qtbase5-dev \
+            qtchooser \
+            qt5-qmake \
+            qtbase5-dev-tools
         ${{ github.workspace }}/.github/workflows/build_pv.sh
     
     - run: |
