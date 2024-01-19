@@ -95,6 +95,21 @@ jobs:
             qtchooser \
             qt5-qmake \
             qtbase5-dev-tools
+        ${{ github.workspace }}/.github/workflows/build_pv.sh
+    
+    - run: |
+        echo "Run, Build Application using script"
+        sudo apt update
+        sudo apt install cmake \
+            ninja-build \
+            build-essential \
+            libgl1-mesa-dev \
+            qtbase5-dev \
+            libqt5svg5-dev \
+            qtbase5-dev-tools \
+            libqt5x11extras5-dev \
+            qtxmlpatterns5-dev-tools \
+            libqt5help5
         export SRC_DIR=${{ github.workspace }}
         # ${{ github.workspace }}/.github/workflows/build_smtk.sh
 
