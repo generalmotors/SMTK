@@ -1,6 +1,7 @@
 export INSTALL_DIR=/opt/axion/axionsdk
+ls $INSTALL_DIR/lib/cmake
 cmake                                                               \
     -G Ninja                                                        \
     -DCMAKE_INSTALL_PREFIX=$INSTALL_DIR                             \
-    -DCMAKE_PREFIX_PATH="$INSTALL_DIR/lib/cmake/Boost-1.79.0;$INSTALL_DIR/lib/cmake/paraview-5.11"       \
+    -DCMAKE_PREFIX_PATH="$INSTALL_DIR/lib/cmake/Boost-1.79.0;$INSTALL_DIR/lib/cmake/paraview-5.11;$INSTALL_DIR/lib/cmake/paraview-5.11/vtk"       \
     $SRC_DIR
