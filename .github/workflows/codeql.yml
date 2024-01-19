@@ -104,6 +104,7 @@ jobs:
             libqt5x11extras5-dev \
             qtxmlpatterns5-dev-tools \
             libqt5help5
+        export SRC_DIR=${{ github.workspace }}
         ${{ github.workspace }}/.github/workflows/build_smtk.sh
 
     # - name: Perform CodeQL Analysis
