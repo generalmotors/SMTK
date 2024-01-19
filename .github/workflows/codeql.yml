@@ -66,9 +66,44 @@ jobs:
 
     #   If the Autobuild fails above, remove it and uncomment the following three lines.
     #   modify them (or add more) to build your code if your project, please refer to the EXAMPLE below for guidance.
-
+    - name: Cache AXION SDK
+      id: cache-axion-sdk
+      uses: actions/cache@v3
+      with:
+        path: |
+          /opt/axion/axionsdk
+          /opt/axion/ccache
+        key: axionsdk-24.00.02
+    - name: Install AXION SDK
+      if: steps.cache-axion-sdk.outputs.cache-hit != 'true'
+      run: |
+        echo "Install AXION SDK"
+        sudo apt update
+        sudo apt install cmake \
+            ninja-build \
+            build-essential \
+            libgl1-mesa-dev \
+            qtbase5-dev \
+            libqt5svg5-dev \
+            qtbase5-dev-tools \
+            libqt5x11extras5-dev \
+            qtxmlpatterns5-dev-tools \
+            libqt5help5
+        ${{ github.workspace }}/.github/workflows/build_pv.sh
+    
     - run: |
         echo "Run, Build Application using script"
+        sudo apt update
+        sudo apt install cmake \
+            ninja-build \
+            build-essential \
+            libgl1-mesa-dev \
+            qtbase5-dev \
+            libqt5svg5-dev \
+            qtbase5-dev-tools \
+            libqt5x11extras5-dev \
+            qtxmlpatterns5-dev-tools \
+            libqt5help5
         ${{ github.workspace }}/.github/workflows/build_smtk.sh
 
     - name: Perform CodeQL Analysis
