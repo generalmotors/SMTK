@@ -109,7 +109,9 @@ jobs:
             qtbase5-dev-tools \
             libqt5x11extras5-dev \
             qtxmlpatterns5-dev-tools \
-            libqt5help5
+            libqt5help5 \
+            ccache
+        
         export SRC_DIR=${{ github.workspace }}
         ${{ github.workspace }}/.github/workflows/build_smtk.sh
 
