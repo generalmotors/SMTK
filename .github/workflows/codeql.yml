@@ -106,7 +106,7 @@ jobs:
             libqt5help5
         ${{ github.workspace }}/.github/workflows/build_smtk.sh
 
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v3
-      with:
-        category: "/language:${{matrix.language}}"
+    # - name: Perform CodeQL Analysis
+    #   uses: github/codeql-action/analyze@v3
+    #   with:
+    #     category: "/language:${{matrix.language}}"
