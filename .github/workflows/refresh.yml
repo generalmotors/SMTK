@@ -1,11 +1,11 @@
-name: Update master branch with vendor commits
+name: Refresh master branch with vendor commits
 
 on:
   schedule:
     - cron: '0 3 * * *'  # Run every day at 3:00 AM
 
 jobs:
-  update-master:
+  refresh-master:
     runs-on: ubuntu-latest
 
     steps:
