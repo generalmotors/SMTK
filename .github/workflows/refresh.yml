@@ -1,5 +1,6 @@
 name: Refresh master branch with vendor commits
-
+permissions:
+  contents: write
 on:
   workflow_dispatch:
   push:
