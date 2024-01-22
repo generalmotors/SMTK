@@ -21,7 +21,7 @@ jobs:
           
       - name: Update master branch
         run: |
-          git branch
+          git branch -a
           git checkout origin/test
           git merge --ff-only gitlab-repo/master
           git push origin test
