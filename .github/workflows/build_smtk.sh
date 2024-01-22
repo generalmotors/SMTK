@@ -13,6 +13,8 @@ cmake                                                               \
     -DCMAKE_CXX_COMPILER_LAUNCHER=ccache  \
     -DBUILD_TESTING=OFF \
     -DQt5_DIR=$INSTALL_DIR/lib/cmake/Qt5 \
-    -DDelaunay_ENABLE_TESTING=OFF
+    -DDelaunay_ENABLE_TESTING=OFF \
+    -DSMTK_ENABLE_POLYGON_SESSION=OFF \
+    -DSMTK_ENABLE_MESH_SESSION=OFF
 
 cmake --build $BUILD_DIR --target install
