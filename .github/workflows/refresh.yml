@@ -2,6 +2,7 @@ name: Refresh master branch with vendor commits
 
 on:
   workflow_dispatch:
+  push:
   schedule:
     - cron: '0 3 * * *'  # Run every day at 3:00 AM
 
@@ -20,6 +21,6 @@ jobs:
           
       - name: Update master branch
         run: |
-          git checkout master
+          git checkout test
           git merge --ff-only gitlab-repo/master
-          git push origin master
+          git push origin test
