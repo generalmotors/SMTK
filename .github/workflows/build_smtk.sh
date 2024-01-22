@@ -16,6 +16,7 @@ cmake                                                               \
     -DDelaunay_ENABLE_TESTING=OFF \
     -DSMTK_ENABLE_POLYGON_SESSION=OFF \
     -DSMTK_ENABLE_MESH_SESSION=OFF \
-    -DSMTK_ENABLE_TESTING=OFF
+    -DSMTK_ENABLE_TESTING=OFF \
+    -DSMTK_ENABLE_OSCILLATOR_SESSION=OFF
 
 cmake --build $BUILD_DIR --target install
