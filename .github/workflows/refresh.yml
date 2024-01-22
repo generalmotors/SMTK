@@ -18,6 +18,7 @@ jobs:
         run: |
           git remote add gitlab-repo https://gitlab.kitware.com/cmb/smtk.git
           git fetch gitlab-repo
+          git fetch origin
           
       - name: Update master branch
         run: |
