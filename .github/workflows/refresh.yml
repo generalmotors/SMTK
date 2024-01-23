@@ -14,8 +14,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Fetch changes from GitLab
         run: |
@@ -24,7 +22,7 @@ jobs:
           
       - name: Update master branch
         run: |
-          git fetch origin test:test
-          git checkout test
+          git fetch origin master:master
+          git checkout master
           git merge --ff-only gitlab-repo/master
-          git push origin test
+          git push origin master
