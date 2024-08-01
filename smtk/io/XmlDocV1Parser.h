@@ -104,20 +104,25 @@ protected:
 
   virtual void processCategoryAtts(
     pugi::xml_node& node,
-    attribute::Categories::Set& catSet,
+    attribute::Categories::Expression& catExp,
     attribute::Categories::CombinationMode& inheritanceMode);
-  void processOldStyleCategoryNode(pugi::xml_node& node, smtk::attribute::Categories::Set& catSet);
+  void processOldStyleCategoryNode(
+    pugi::xml_node& node,
+    smtk::attribute::Categories::Expression& catExp);
   void processItemDefCategoryInfoNode(
     pugi::xml_node& node,
     smtk::attribute::ItemDefinitionPtr idef);
   virtual void processCategoryInfoNode(
     pugi::xml_node& node,
-    attribute::Categories::Set& catSet,
+    attribute::Categories::Expression& catExp,
     attribute::Categories::CombinationMode& inheritanceMode);
 
   virtual void processDefinitionInformation(pugi::xml_node& defNode);
   void processDefinitionInformationChildren(pugi::xml_node& node);
   void createDefinition(pugi::xml_node& defNode);
+
+  void processAnalysisInformationChildren(pugi::xml_node& node);
+  void createAnalysis(pugi::xml_node& analysisNode);
 
   virtual void processDefinition(pugi::xml_node& defNode, smtk::attribute::DefinitionPtr& def);
   virtual void processDefinitionAtts(pugi::xml_node& defNode, smtk::attribute::DefinitionPtr& def);
@@ -129,7 +134,7 @@ protected:
     smtk::attribute::DefinitionPtr& def);
 
   virtual void processAssociationDef(pugi::xml_node& node, smtk::attribute::DefinitionPtr def);
-  virtual void processAttribute(pugi::xml_node& attNode);
+  virtual smtk::attribute::AttributePtr processAttribute(pugi::xml_node& attNode);
   virtual void processItem(pugi::xml_node& node, smtk::attribute::ItemPtr item);
 
   void addDefaultCategoryIfNeeded(const smtk::attribute::ItemDefinitionPtr& idef);

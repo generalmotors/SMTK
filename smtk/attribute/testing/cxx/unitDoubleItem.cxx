@@ -109,6 +109,10 @@ public:
     smtkTest(
       !mp_doubleItemDef1->setDefaultValueAsString("10.0 m/s"), "Was able to set default to 10 m/s");
 
+    mp_doubleVecItemDef = DoubleItemDefinition::New("testDoubleVecItem");
+    mp_doubleVecItemDef->setNumberOfRequiredValues(3);
+    mp_def->addItemDefinition(mp_doubleVecItemDef);
+
     // Simple test with no units system
     auto ddef = DoubleItemDefinition::New("NoUnitsDef");
     smtkTest(ddef->setUnits("cm"), "Could not set units to cm");
@@ -146,6 +150,23 @@ public:
     return mp_att->findDouble("testDoubleItem1");
   }
 
+  DoubleItemPtr getDoubleVecItem()
+  {
+    if (!mp_att)
+    {
+      mp_att = mp_attRes->createAttribute(mp_def);
+    }
+    auto item = mp_att->findDouble("testDoubleVecItem");
+    // Is the vector initialized?
+    if (!item->isValid())
+    {
+      item->setValue(0, 0);
+      item->setValue(1, 1);
+      item->setValue(2, 2);
+    }
+    return item;
+  }
+
   void SetUpDoubleItemTestExpressions()
   {
     mp_evaluatorDef = mp_attRes->createDefinition("doubleItemTestExpression");
@@ -166,6 +187,7 @@ public:
   DefinitionPtr mp_def;
   DoubleItemDefinitionPtr mp_doubleItemDef;
   DoubleItemDefinitionPtr mp_doubleItemDef1;
+  DoubleItemDefinitionPtr mp_doubleVecItemDef;
 
   DefinitionPtr mp_evaluatorDef;
 };
@@ -196,6 +218,46 @@ void testBasicGettingValue()
   smtkTest(item1->value() == 15.0, "Expected value to be 15.0 cm.");
   smtkTest(item1->valueAsString() == "150 mm", "Expected value to be 150 mm.");
   smtkTest(!item1->setValueFromString(0, "150 cm/s"), "Could set value to 150 cm/s");
+
+  // Test Iterator Interface
+  item = doubleItemTest.getDoubleVecItem();
+  double answer = 0;
+  for (auto it = item->begin(); it != item->end(); ++it)
+  {
+    smtkTest(*it == answer, "Expected iterator value: " << answer << " but found: " << *it);
+    ++answer;
+  }
+}
+
+void testExplicitUnits()
+{
+  DoubleItemTest doubleItemTest;
+  DoubleItemPtr item1 = doubleItemTest.getDoubleItem1();
+  DoubleItemPtr item = doubleItemTest.getDoubleItem();
+
+  smtkTest(
+    item->setUnits("m"),
+    "Should  be able to set explicit units to m on an Item whose Definition has no units!");
+  smtkTest(
+    !item1->setUnits("m"),
+    "Should not be able to set explicit units on an Item whose Definition has units!");
+
+  smtkTest(item->setValue(100.0), "Could not set item to 100 m");
+  smtkTest(item->valueAsString() == "100 m", "Expected value string to be 100 m.");
+  smtkTest(
+    item->setUnits("cm"),
+    "Should  be able to set explicit units to cm on an Item whose Definition has no units!");
+  smtkTest(item->valueAsString() == "100 m", "Expected value string to remain to be 100 m.");
+  smtkTest(item->value() == 10000.0, "Expected value to be 10000.0 cm.");
+  smtkTest(
+    item->setUnits("K"),
+    "Should  be able to set explicit units to K on an Item whose Definition has no units!");
+  smtkTest(item->valueAsString() == "100 K", "Expected value string to remain to be 100 K.");
+  smtkTest(
+    item->setUnits("madeUpUnits"),
+    "Should  be able to set explicit units to madeUpUnits on an Item whose Definition has no "
+    "units!");
+  smtkTest(item->valueAsString() == "100", "Expected value string to remain to be 100 (no units).");
 }
 
 void testGettingValueWithExpression()
@@ -277,7 +339,7 @@ void testValueAsString()
   }
 }
 
-// Test XML reading and writing for evalutors by writing a Attribute Resource,
+// Test XML reading and writing for evaluators by writing a Attribute Resource,
 // reading it, then writing it again to get the same result.
 void testEvaluatorXMLIO()
 {
@@ -329,6 +391,7 @@ int unitDoubleItem(int /*argc*/, char** const /*argv*/)
 {
   smtk::io::Logger::instance().reset();
   testBasicGettingValue();
+  testExplicitUnits();
   smtk::io::Logger::instance().reset();
 
   testGettingValueWithExpression();

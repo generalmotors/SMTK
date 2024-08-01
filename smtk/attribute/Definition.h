@@ -143,17 +143,20 @@ public:
   void setCategoryInheritanceMode(Categories::CombinationMode mode) { m_combinationMode = mode; }
   ///@}
 
-  ///\brief Returns the categories explicitly assigned to the Definition
-  smtk::attribute::Categories::Set& localCategories() { return m_localCategories; }
-  const smtk::attribute::Categories::Set& localCategories() const { return m_localCategories; }
+  ///\brief Returns the category expression explicitly assigned to the Definition
+  smtk::attribute::Categories::Expression& localCategories() { return m_localCategories; }
+  const smtk::attribute::Categories::Expression& localCategories() const
+  {
+    return m_localCategories;
+  }
 
   ///\brief Sets the local categories.
   ///
   /// This method is intended for use by Python applications, because Python code cannot
   /// manipulate the reference returned by the localCategories() method.
-  void setLocalCategories(const smtk::attribute::Categories::Set& catSet)
+  void setLocalCategories(const smtk::attribute::Categories::Expression& catExp)
   {
-    m_localCategories = catSet;
+    m_localCategories = catExp;
   }
 
   /**
@@ -423,6 +426,20 @@ public:
   bool ignoreCategories() const { return m_ignoreCategories; }
   void setIgnoreCategories(bool val) { m_ignoreCategories = val; }
 
+  /// @{
+  ///\brief Set/Get the units string associated with the definition
+  ///
+  /// This means that the information that the definition's attributes represents
+  /// conceptually has units but unlike attribute Items, does not have a numerical value
+  /// associated with it.  For example an attribute may be used to indicate that a numerical
+  /// field being output by a simulation represents a temperature whose units should be in Kelvin
+  const std::string& units() const { return m_units; }
+  bool setUnits(const std::string& newUnits);
+  /// @}
+
+  /// \brief Gets the system of units used by this definition.
+  const std::shared_ptr<units::System>& unitsSystem() const;
+
 protected:
   friend class smtk::attribute::Resource;
   /// AttributeDefinitions can only be created by an attribute resource
@@ -458,7 +475,7 @@ protected:
   std::string m_type;
   std::string m_label;
   bool m_isNodal;
-  attribute::Categories::Set m_localCategories;
+  attribute::Categories::Expression m_localCategories;
   attribute::Categories m_categories;
   bool m_hasLocalAdvanceLevelInfo[2];
   unsigned int m_localAdvanceLevel[2];
@@ -487,6 +504,7 @@ protected:
   Tags m_tags;
   std::size_t m_includeIndex;
   Categories::CombinationMode m_combinationMode;
+  std::string m_units;
 
 private:
   /// These colors are returned for base definitions w/o set colors

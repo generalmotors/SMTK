@@ -5,18 +5,19 @@ add_executable(attributeImportExportTest attributeImportExportTest.cxx)
 target_link_libraries(attributeImportExportTest smtkCore)
 
 set(attributeTests
+  attributeAutoNamingTest
   basicAttributeDefinitionTest
   basicAttributeDerivationTest
   basicAttributeFindTest
   basicAttributeXMLWriterTest
+  categoryTest
   childrenItemsTest
+  customIsRelevantTest
   discreteStringsWithDefaultTest
   expressionTest
   expressionTest2
   extensibleAttributeCopyTest
   fileValidationTest
-  attributeAutoNamingTest
-  categoryTest
   referenceItemStorageTest
 )
 set(basicAttributeXMLWriterTest_ARGS
@@ -82,6 +83,7 @@ set(unit_tests
   unitAttributeAssociationConstraints.cxx
   unitAttributeBasics.cxx
   unitAttributeExclusiveAnalysis.cxx
+  unitAttributeUnits.cxx
   unitReferenceItemChildrenTest.cxx
   unitCategories.cxx
   unitComponentItem.cxx

@@ -149,9 +149,9 @@ bool Resource::removeDefinition(DefinitionPtr def)
 {
   if (!def || def->resource() != shared_from_this())
   {
-    std::cerr << "ERROR: " << def->type()
-              << " does not belong to the specified"
-                 " attribute Resource!";
+    smtkErrorMacro(
+      smtk::io::Logger::instance(),
+      def->type() << " does not belong to the specified attribute Resource!");
     return false;
   }
 
@@ -159,8 +159,9 @@ bool Resource::removeDefinition(DefinitionPtr def)
   const bool hasChildren = childrenIt != m_derivedDefInfo.cend() && !(*childrenIt).second.empty();
   if (hasChildren)
   {
-    std::cerr << "ERROR: Removing base Definition instances is not"
-                 " supported!\n";
+    smtkErrorMacro(
+      smtk::io::Logger::instance(),
+      "Can not delete " << def->type() << " since it is the basis for other definitions!");
     return false;
   }
 
@@ -339,7 +340,8 @@ bool Resource::removeAttribute(smtk::attribute::AttributePtr att)
 
   if (m_attributes.find(att->name()) == m_attributes.end())
   {
-    std::cerr << "Resource doesn't have attribute named: " << att->name() << std::endl;
+    smtkErrorMacro(
+      smtk::io::Logger::instance(), "Resource doesn't have attribute named: " << att->name());
     return false;
   }
   m_attributes.erase(att->name());
@@ -525,6 +527,7 @@ void Resource::finalizeDefinitions()
     def->applyCategories(initialCats);
     def->applyAdvanceLevels(0, 0);
   }
+
   // Now all of the definitions have been processed we need to combine all
   // of their categories to form the Resource's categories
   m_categories.clear();
@@ -712,18 +715,20 @@ smtk::attribute::DefinitionPtr Resource::copyDefinition(
         if (sourceExpDef)
         {
           // Attempt to Copy definition
-          std::cout << "Copying \"" << type << "\" definition" << std::endl;
           expDef = this->copyDefinition(sourceExpDef);
           if (!expDef)
           {
-            std::cerr << "ERROR: Unable to copy expression definition " << type
-                      << " -- copy operation incomplete" << std::endl;
+            smtkErrorMacro(
+              smtk::io::Logger::instance(),
+              "Unable to copy expression definition " << type << " -- copy operation incomplete");
           }
         }
         else
         {
-          std::cout << "Unable to find source expression definition " << type
-                    << " -- assuming it is external to the Resource" << std::endl;
+          smtkWarningMacro(
+            smtk::io::Logger::instance(),
+            "Unable to find source expression definition "
+              << type << " -- assuming it is external to the Resource");
         }
       }
       if (expDef)
@@ -749,7 +754,8 @@ bool Resource::copyDefinitionImpl(
   std::string typeName = sourceDef->type();
   if (this->findDefinition(typeName))
   {
-    std::cerr << "WARNING: Will not overwrite attribute definition " << typeName << std::endl;
+    smtkWarningMacro(
+      smtk::io::Logger::instance(), "Will not overwrite attribute definition " << typeName);
     return false;
   }
 
@@ -783,6 +789,7 @@ bool Resource::copyDefinitionImpl(
   newDef->setLabel(sourceDef->label());
   newDef->setVersion(sourceDef->version());
   newDef->setIsAbstract(sourceDef->isAbstract());
+  newDef->setUnits(sourceDef->units());
   if (sourceDef->hasLocalAdvanceLevelInfo(0))
   {
     newDef->setLocalAdvanceLevel(0, sourceDef->localAdvanceLevel(0));
@@ -1200,6 +1207,10 @@ std::shared_ptr<smtk::resource::Resource> Resource::clone(
     return rsrc;
   }
 
+  // Insert the source of the original into the object mapping
+  // so its properties can be copied if need
+  options.objectMapping()[this->id()] = rsrc.get();
+
   if (this->isNameSet())
   {
     rsrc->setName(this->name());
@@ -1243,6 +1254,8 @@ std::shared_ptr<smtk::resource::Resource> Resource::clone(
     }
   }
 
+  // Copy all of its analyses
+  rsrc->m_analyses = this->m_analyses;
   return rsrc;
 }
 
@@ -1257,22 +1270,27 @@ bool Resource::copyInitialize(
     return false;
   }
 
+  // copy the active category information
+  m_activeCategoriesEnabled = source->m_activeCategoriesEnabled;
+  m_activeCategories = source->m_activeCategories;
+
   std::vector<smtk::attribute::AttributePtr> allAttributes;
   if (options.copyComponents())
   {
     // Construct options for copying attributes but not their contents.
     smtk::attribute::CopyAssignmentOptions attOptions;
 
-    attOptions.copyOptions.setCopyUUID(false);
-    attOptions.copyOptions.setPerformAssignment(false);
-    attOptions.copyOptions.setCopyDefinition(
-      false); // These should already be present from clone().
-
     if (options.suboptions().contains<smtk::attribute::CopyAssignmentOptions>())
     {
       // Our caller is providing an override.
       attOptions = options.suboptions().get<smtk::attribute::CopyAssignmentOptions>();
     }
+    // Since this method only copies the structure of the resource and not the attributes'
+    // items' value and the fact that the definition information should have already been
+    // copied in the clone method - these options should always be off.
+    attOptions.copyOptions.setCopyUUID(false);
+    attOptions.copyOptions.setPerformAssignment(false);
+    attOptions.copyOptions.setCopyDefinition(false);
 
     // Copy all the attributes.
     source->attributes(allAttributes);
@@ -1311,27 +1329,28 @@ bool Resource::copyFinalize(
   }
 
   smtk::attribute::CopyAssignmentOptions attOptions;
+  if (options.suboptions().contains<smtk::attribute::CopyAssignmentOptions>())
+  {
+    // Our caller is providing an override.
+    attOptions = options.suboptions().get<smtk::attribute::CopyAssignmentOptions>();
+  }
+  else
+  {
+    // Set some realistic defaults
 
-  // I. Copy associations and reference-item data.
+    // There should be no need to validate these
+    attOptions.attributeOptions.setDoNotValidateAssociations(true);
+    attOptions.itemOptions.setDoNotValidateReferenceInfo(true);
 
-  // None of the copy options should be needed since all of the
-  // attributes should already be copied
-  attOptions.copyOptions.setCopyUUID(false);
-  attOptions.copyOptions.setPerformAssignment(true);
-  attOptions.copyOptions.setCopyDefinition(false); // These should already be present from clone().
+    attOptions.attributeOptions.setCopyAssociations(true);
+  }
 
-  attOptions.attributeOptions.setIgnoreMissingItems(false);
-  attOptions.attributeOptions.setAllowPartialAssociations(false);
-  attOptions.attributeOptions.setDoNotValidateAssociations(
-    true); // There should be no need to validate
-  attOptions.attributeOptions.setCopyAssociations(true);
-  attOptions.attributeOptions.setObjectMapping(&options.objectMapping());
-
-  attOptions.itemOptions.setIgnoreMissingChildren(false);
-  attOptions.itemOptions.setAllowPartialValues(false);
-  attOptions.itemOptions.setIgnoreReferenceValues(false);
-  attOptions.itemOptions.setDoNotValidateReferenceInfo(true);
+  // All of the required attributes should already be copied - this option should
+  // always be off
   attOptions.itemOptions.setDisableCopyAttributes(true);
+
+  // Set the object mapping
+  attOptions.attributeOptions.setObjectMapping(&options.objectMapping());
   attOptions.itemOptions.setObjectMapping(&options.objectMapping());
 
   // for each attribute in the source resource copy assign its data to its copy
@@ -1368,6 +1387,24 @@ bool Resource::copyFinalize(
         options.log(),
         "Could not assign Attribute: " << sourceAtt->name() << "'s information to attribute copy.");
       status = false;
+    }
+  }
+
+  // Deal with the resources directly associated with this one
+  auto associatedResources = sourceAttResource->associations();
+  for (const auto& assoRes : associatedResources)
+  {
+    // See if this resource was copied
+    auto* destRes = options.targetObjectFromSourceId<smtk::resource::Resource>(assoRes->id());
+
+    if (destRes == nullptr)
+    {
+      // This resource was not copied so just add it to the copied attribute resource
+      this->associate(assoRes);
+    }
+    else
+    {
+      this->associate(destRes->shared_from_this());
     }
   }
 
@@ -1434,7 +1471,7 @@ void Resource::setActiveCategories(const std::set<std::string>& cats)
   m_activeCategories = cats;
 }
 
-bool Resource::passActiveCategoryCheck(const smtk::attribute::Categories::Set& cats) const
+bool Resource::passActiveCategoryCheck(const smtk::attribute::Categories::Expression& cats) const
 {
   if (!m_activeCategoriesEnabled)
   {

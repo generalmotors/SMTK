@@ -40,7 +40,7 @@ inline PySharedPtrClass< smtk::attribute::Resource> pybind11_init_smtk_attribute
     .def("addStyle", &smtk::attribute::Resource::addStyle, py::arg("defTypeName"), py::arg("style"))
     .def("advanceLevelColor", &smtk::attribute::Resource::advanceLevelColor, py::arg("level"))
     .def("advanceLevels", &smtk::attribute::Resource::advanceLevels)
-    .def("analyses", &smtk::attribute::Resource::analyses)
+    .def("analyses", &smtk::attribute::Resource::analyses, py::return_value_policy::reference_internal)
     .def("associations", &smtk::attribute::Resource::associations)
     .def("associate", &smtk::attribute::Resource::associate)
     .def("attributes", (std::set<smtk::attribute::AttributePtr> (smtk::attribute::Resource::*)(const smtk::resource::ConstPersistentObjectPtr&) const) &smtk::attribute::Resource::attributes, py::arg("object"))
@@ -82,7 +82,7 @@ inline PySharedPtrClass< smtk::attribute::Resource> pybind11_init_smtk_attribute
     .def("isRoleUnique", &smtk::attribute::Resource::isRoleUnique)
     .def("numberOfAdvanceLevels", &smtk::attribute::Resource::numberOfAdvanceLevels)
     .def("numberOfCategories", &smtk::attribute::Resource::numberOfCategories)
-    .def("passActiveCategoryCheck", (bool (smtk::attribute::Resource::*) (const smtk::attribute::Categories::Set& cats) const) &smtk::attribute::Resource::passActiveCategoryCheck, py::arg("categorySet"))
+    .def("passActiveCategoryCheck", (bool (smtk::attribute::Resource::*) (const smtk::attribute::Categories::Expression& cats) const) &smtk::attribute::Resource::passActiveCategoryCheck, py::arg("categoryExpression"))
     .def("passActiveCategoryCheck", (bool (smtk::attribute::Resource::*) (const smtk::attribute::Categories& cats) const) &smtk::attribute::Resource::passActiveCategoryCheck, py::arg("categories"))
     .def("removeAttribute", &smtk::attribute::Resource::removeAttribute, py::arg("att"))
     .def("rename", &smtk::attribute::Resource::rename, py::arg("att"), py::arg("newName"))
@@ -107,6 +107,8 @@ inline PySharedPtrClass< smtk::attribute::Resource> pybind11_init_smtk_attribute
       })
     .def("copyAttribute", (smtk::attribute::AttributePtr (smtk::attribute::Resource::*)(const smtk::attribute::AttributePtr& att, const smtk::attribute::CopyAssignmentOptions&)) &smtk::attribute::Resource::copyAttribute, py::arg("sourceAttribute"), py::arg("options") = smtk::attribute::CopyAssignmentOptions())
     .def("copyAttribute", (smtk::attribute::AttributePtr (smtk::attribute::Resource::*)(const smtk::attribute::AttributePtr& att, const smtk::attribute::CopyAssignmentOptions&, smtk::io::Logger&)) &smtk::attribute::Resource::copyAttribute, py::arg("sourceAttribute"), py::arg("options"), py::arg("logger"))
+    .def_static("associationRole", &smtk::attribute::Resource::associationRole)
+    .def_static("referenceRole", &smtk::attribute::Resource::referenceRole)
     ;
   return instance;
 }

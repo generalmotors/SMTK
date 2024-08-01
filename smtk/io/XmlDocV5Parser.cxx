@@ -22,6 +22,32 @@ using namespace smtk;
 
 namespace
 {
+
+template<typename ValueType>
+ValueType node_as(const xml_node& node);
+
+template<>
+double node_as<double>(const xml_node& node)
+{
+  return node.text().as_double();
+}
+
+template<>
+std::string node_as<std::string>(const xml_node& node)
+{
+  std::string s = node.text().as_string();
+  return common::StringUtil::trim(s);
+}
+
+template<typename Container, typename ValueType = typename Container::value_type>
+void nodeToData(const xml_node& node, Container& container)
+{
+  for (const xml_node& child : node.children("Value"))
+  {
+    container.insert(container.end(), node_as<ValueType>(child));
+  }
+}
+
 template<typename T>
 void processProperties(T& object, xml_node& propertiesNode, Logger& logger)
 {
@@ -57,6 +83,14 @@ void processProperties(T& object, xml_node& propertiesNode, Logger& logger)
     else if (propType == "string")
     {
       object->properties().template get<std::string>()[propName] = propNode.text().as_string();
+    }
+    else if (propType == "vector[string]")
+    {
+      nodeToData(propNode, object->properties().template get<std::vector<std::string>>()[propName]);
+    }
+    else if (propType == "vector[double]")
+    {
+      nodeToData(propNode, object->properties().template get<std::vector<double>>()[propName]);
     }
     else if (propType == "bool")
     {
@@ -113,25 +147,24 @@ void XmlDocV5Parser::process(
   }
 }
 
-void XmlDocV5Parser::processAttribute(pugi::xml_node& attNode)
+smtk::attribute::AttributePtr XmlDocV5Parser::processAttribute(pugi::xml_node& attNode)
 {
-  XmlDocV4Parser::processAttribute(attNode);
+  auto att = XmlDocV4Parser::processAttribute(attNode);
 
-  xml_node propertiesNode = attNode.child("Properties");
-  if (propertiesNode)
+  if (att)
   {
-    xml_attribute xatt = attNode.attribute("Name");
-    if (!xatt)
+    xml_node propertiesNode = attNode.child("Properties");
+    if (propertiesNode)
     {
-      return;
-    }
-    std::string name = xatt.value();
-    auto att = m_resource->findAttribute(name);
-    if (att)
-    {
-      processProperties(att, propertiesNode, m_logger);
+      xml_attribute xatt = attNode.attribute("Name");
+      if (xatt)
+      {
+        std::string name = xatt.value();
+        processProperties(att, propertiesNode, m_logger);
+      }
     }
   }
+  return att;
 }
 
 bool XmlDocV5Parser::canParse(pugi::xml_document& doc)

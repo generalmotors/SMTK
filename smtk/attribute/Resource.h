@@ -87,10 +87,18 @@ public:
   /// Link from an attribute to persistent objects
   /// which manifest, exhibit, or possess the attribute.
   static constexpr smtk::resource::Links::RoleType AssociationRole = -1;
+  static constexpr smtk::resource::Links::RoleType associationRole()
+  {
+    return Resource::AssociationRole;
+  }
 
   /// Link from an attribute item to persistent objects
   /// which the item contains or references.
   static constexpr smtk::resource::Links::RoleType ReferenceRole = -2;
+  static constexpr smtk::resource::Links::RoleType referenceRole()
+  {
+    return Resource::ReferenceRole;
+  }
 
   ~Resource() override;
 
@@ -241,7 +249,7 @@ public:
   const std::set<std::string>& activeCategories() const { return m_activeCategories; }
   ///@}
 
-  bool passActiveCategoryCheck(const smtk::attribute::Categories::Set& cats) const;
+  bool passActiveCategoryCheck(const smtk::attribute::Categories::Expression& cats) const;
   bool passActiveCategoryCheck(const smtk::attribute::Categories& cats) const;
 
   void addView(smtk::view::ConfigurationPtr);
@@ -413,20 +421,39 @@ public:
   bool setTemplateVersion(std::size_t templateVersion) override;
   std::size_t templateVersion() const override { return m_templateVersion; }
 
-  /// Create an empty, un-managed clone of this resource instance.
+  ///\brief Create an empty, un-managed clone of this resource instance's meta information.
   ///
   /// If \a options has copyTemplateData() set to true, then this resource's
   /// Definition instances will be copied to the output resources.
+  /// In addition, unitsSystem and Analysis information is copied.
   std::shared_ptr<smtk::resource::Resource> clone(
     smtk::resource::CopyOptions& options) const override;
 
-  /// Copy data from the \a other resource into this resource, as specified by \a options.
+  ///\brief Copy data from the \a other resource into this resource, as specified by \a options.
+  ///
+  /// In the case of attribute resources - only the structure defined by the source's attributes
+  /// are copied (note their items' values), as well as properties, views, geometry (if any),
+  /// and active category information.
+  /// Note that the following attribute copy options will always be assumed to be set and cannot
+  /// be overridden by \a options:
+  ///   CopyUUID(false)
+  ///   PerformAssignment(false)
+  ///   CopyDefinition(false)
+
   bool copyInitialize(
     const std::shared_ptr<const smtk::resource::Resource>& other,
     smtk::resource::CopyOptions& options) override;
 
-  /// Copy relations (associations, references) from the \a source resource
-  /// into this resource, as specified by \a options.
+  ///\brief Copy attribute resource contents.
+  ///
+  /// Besides items' values this includes:
+  ///    Relations (associations, references) from the \a source resource
+  ///    into this resource, as specified by \a options.
+  ///    Associated resource information.
+  ///    Link information
+  ///
+  /// Note that since the structure of the resource is assumed to be copied
+  /// in copyFinalize, the attribute copy option DisableCopyAttributes always set to true.
   bool copyFinalize(
     const std::shared_ptr<const smtk::resource::Resource>& source,
     smtk::resource::CopyOptions& options) override;
