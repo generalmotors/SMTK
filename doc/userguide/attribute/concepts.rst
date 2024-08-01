@@ -253,6 +253,79 @@ the "construction method" value is represented as a tabbed
 widget with 1 tab for each of the "Structure" sections above.
 The default tab will be "2 points".
 
+----------------------
+Dealing with Relevance
+----------------------
+
+In many workflows, especially ones that support complex aspects such as multi-physics, typically only a subset of the information specified is relevant with respects to the current task.  For example, a hydrological workflow can have information related to constituent and heat transport; however, this information is not relevant if the task is to model only fluid flow.
+
+Note that this concept of relevance can also apply to the values a discrete item (an item will a discrete list of enumerated values) can be set to.
+
+Once major aspect related to relevance is validity.  If information is not relevant then it should not affect validity.  In the above example, missing information concerning a constituent property should not indicate that the workflow is invalid (in this case invalid means incomplete); however, if the task was to change and require constituent transport, then it would be considered invalid.
+
+In SMTK's attribute resource, attributes and their items provide methods to indicate their relevance.  By default, relevance depends on a set of categories (typically this is the attribute resource's set of active categories) .  If the set of categories satisfies the category constraints associated with attribute or item, then it is considered relevant.
+
+For UI purposes, relevance can also take a requested read access level into consideration.  For example, if a workflow is displaying basic information (indicated by read access level 0) and an attribute contains only items with a greater read level, then none of the attribute items would be displayed and in this scenario the attribute itself would be considered not relevant (w/r to the UI) and should not be displayed.
+
+
+Custom Relevance for Items
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+SMTK now supports the ability to assign a function to an attribute item that would
+be used to determine if an item is currently relevant. For example, it is now possible to have the relevance of one item depend on the value of another.
+
+**Note** that no effort is made to serialize or deserialize the provided function; your application that uses SMTK must call ``Item::setCustomIsRelevant()`` each time the item is loaded or created.
+
+Custom Relevance for Enumerated Values
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+SMTK now supports the ability to assign a function to a value item's definition (consisting of discrete enumerated values). Similar to relevance function for item, this  function  would
+be used to determine if an item's enum value  is currently relevant. For example, it is now possible to restrict the possible relevant values an item can based on the value of another item.
+
+**Note** that no effort is made to serialize or deserialize the provided function; your application that uses SMTK must call ``Item::setCustomIsRelevant()`` each time the item is loaded or created.
+
+Related API
+~~~~~~~~~~~
+
+* ``Attribute::isRelevant`` - method to call to see if an attribute is relevant
+* ``Item::isRelevant`` - method to call to see if an item is relevant
+* ``Item::defaultIsRelevant`` - default relevance method used by ``Attribute::isRelevant`` when no custom relevance function has been specified
+* ``Item::setCustomIsRelevant`` - method used to set a custom relevance function
+* ``Item::customIsRelevant - method used to return the custom  relevance function if one has been set
+* ``ValueItem::relevantEnums`` - returns a list of enum strings representing the current relevant discrete values
+* ``ValueItemDefinition::relevantEnums`` - the method called by ``ValueItem::relevantEnums`` when no custom relevance function has been specified
+* ``ValueItemDefinition::defaultIsEnumRelevant`` - the default relevance method for enum values based solely on categories and read access level
+* ``ValueItemDefinition::setCustomEnumIsRelevant - method used to set a custom enum relevance function
+* ``ValueItemDefinition::customEnumIsRelevant - method used to return the custom enum relevance function if one has been set
+
+Please see `customIsRelevantTest <https://gitlab.kitware.com/cmb/smtk/-/blob/master/smtk/attribute/testing/cxx/customIsRelevantTest.cxx>`_ for an example of how to use this functionality.
+
+------------------
+Dealing with Units
+------------------
+
+SMTK attribute resources support units via the `units`_ library;
+you can visit its repository for documentation on how to use the library,
+but SMTK does not require you to use the units library for most tasks.
+Instead, workflow designers specify units for items as a string and SMTK
+user-interface components accept values from users in any compatible units.
+This way, when you export a simulation attribute, all the unit conversions
+are automatically performed by SMTK for you.
+
+The value-based Items (DoubleItem, StringItem, IntegerItem, etc..) can have
+their *native* units (the units that the Item returns its value in) defined
+in their :smtk:`ItemDefinition <smtk::attribute::ItemDefinition>`. In the
+case of DoubleItems, they can also be explicitly assigned to the item itself
+(when its definition does not specify the units).
+
+.. _units: https://gitlab.kitware.com/units/units/
+
+For example, a DoubleItem **foo** has its units specify by its Definition as "meters".  If foo is assigned "10 cm", its returned value will be 0.1 (meters).
+
+Changing an Item's explicit units can affect its current values.  For example if a DoubleItem **bar** is explicitly assigned "cm" as its units and its value is set to "100 m", its return value will be 10000 (cm).  If its explicit units are then changed to "meters", its return value is now 100 (meters).  However, if an Item is assigned new units that not compatible to its input values, the input values are replaced with the new units.  For example, it we were to later change **bar**'s units to "K" (Kelvin), it return value will be 100 (Kelvin).
+
+Please see `unitDoubleItem <https://gitlab.kitware.com/cmb/smtk/-/blob/master/smtk/attribute/testing/cxx/unitDoubleItem.cxx>`_ for a simple example of using units.
+
 
 Migration to newer schema
 -------------------------

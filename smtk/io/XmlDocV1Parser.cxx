@@ -248,11 +248,37 @@ bool processDerivedValueDefChildNode(pugi::xml_node& node, const ItemDefType& id
       // Does the enum have explicit categories
       // This is the old format for categories
       xml_node catNodes = child.child("Categories");
-      // This is the current format
+      // This is the style used prior to 5/2024
       xml_node catInfoNode = child.child("CategoryInfo");
-      if (catInfoNode)
+      // This is the latest style
+      xml_node catExpNode = child.child("CategoryExpression");
+      if (catExpNode)
       {
-        Categories::Set cats;
+        Categories::Expression catExp;
+        // Is this a trivial expression - all pass or none pass?
+        xatt = catExpNode.attribute("PassMode");
+        if (xatt)
+        {
+          std::string pmode = xatt.value();
+          if (pmode == "All")
+          {
+            catExp.setAllPass();
+          }
+          else if (pmode == "None")
+          {
+            catExp.setAllReject();
+          }
+        }
+        else
+        {
+          std::string exp = catExpNode.text().get();
+          catExp.setExpression(exp);
+        }
+        idef->setEnumCategories(v, catExp);
+      }
+      else if (catInfoNode)
+      {
+        Categories::Expression cats;
         // Lets get the overall combination mode
         xatt = catInfoNode.attribute("Combination");
         if (XmlDocV1Parser::getCategoryComboMode(xatt, catMode))
@@ -293,7 +319,7 @@ bool processDerivedValueDefChildNode(pugi::xml_node& node, const ItemDefType& id
       }
       else if (catNodes)
       {
-        Categories::Set cats;
+        Categories::Expression cats;
         xatt = catNodes.attribute("CategoryCheckMode");
         if (XmlDocV1Parser::getCategoryComboMode(xatt, catMode))
         {
@@ -635,66 +661,21 @@ void XmlDocV1Parser::process(
   // Add the new Categories
   seccategories.insert(newCats.begin(), newCats.end());
 
+  // Since Analyses Block can support template instantiation
+  // We need to process Template Definitions prior to Analyses
+  this->processTemplatesDefinitions(amnode, globalTemplateMap);
+
   // Process Analysis Info
-  std::set<std::string> categories;
   node = amnode.child("Analyses");
   if (node)
   {
     attribute::Analyses& analyses = m_resource->analyses();
-    xml_node anode;
     auto xatt = node.attribute("Exclusive");
     if (xatt && xatt.as_bool())
     {
       analyses.setTopLevelExclusive(true);
     }
-    for (anode = node.first_child(); anode; anode = anode.next_sibling())
-    {
-      s = anode.attribute("Type").value();
-      categories.clear();
-      for (cnode = anode.first_child(); cnode; cnode = cnode.next_sibling())
-      {
-        if (cnode.text().empty())
-        {
-          continue;
-        }
-        categories.insert(cnode.text().get());
-      }
-      auto* analysis = analyses.create(s);
-      if (analysis == nullptr)
-      {
-        smtkErrorMacro(m_logger, "Failed to create Analysis: " << s);
-        continue;
-      }
-      analysis->setLocalCategories(categories);
-      // Does this analysis have a base type?
-      xatt = anode.attribute("BaseType");
-      if (xatt)
-      {
-        const auto* bt = xatt.value();
-        auto* parent = analyses.find(bt);
-        if (parent == nullptr)
-        {
-          smtkErrorMacro(m_logger, "Failed to set Analysis: " << s << " parent to " << bt);
-        }
-        analysis->setParent(parent);
-      }
-      xatt = anode.attribute("Exclusive");
-      if (xatt && xatt.as_bool())
-      {
-        analysis->setExclusive(true);
-      }
-      xatt = anode.attribute("Required");
-      if (xatt && xatt.as_bool())
-      {
-        analysis->setRequired(true);
-      }
-      // Does the analysis have a label?
-      xatt = anode.attribute("Label");
-      if (xatt)
-      {
-        analysis->setLabel(xatt.value());
-      }
-    }
+    this->processAnalysisInformationChildren(node);
   }
 
   // Process AdvanceLevel Info
@@ -728,7 +709,6 @@ void XmlDocV1Parser::process(
   }
   this->processConfigurations(amnode);
   this->processItemDefinitionBlocks(amnode, globalTemplateMap);
-  this->processTemplatesDefinitions(amnode, globalTemplateMap);
   this->processAssociationRules(amnode);
   this->processAttributeInformation(amnode);
   this->processViews(amnode);
@@ -774,6 +754,84 @@ void XmlDocV1Parser::process(
   this->processHints(amnode);
 }
 
+void XmlDocV1Parser::processAnalysisInformationChildren(xml_node& node)
+{
+  for (xml_node child = node.first_child(); child; child = child.next_sibling())
+  {
+    std::string nodeName = child.name();
+    if ((nodeName == "Block") || (nodeName == "Template"))
+    {
+      pugi::xml_node instancedTemplateNode;
+      if (this->createXmlFromTemplate(child, instancedTemplateNode))
+      {
+        this->processAnalysisInformationChildren(instancedTemplateNode);
+        this->releaseXmlTemplate(instancedTemplateNode);
+      }
+      continue;
+    }
+    if (nodeName == "Analysis")
+    {
+      this->createAnalysis(child);
+      continue;
+    }
+    smtkWarningMacro(m_logger, "Skipping unsupported Analysis child element type: " << nodeName);
+  }
+}
+
+void XmlDocV1Parser::createAnalysis(xml_node& anode)
+{
+  attribute::Analyses& analyses = m_resource->analyses();
+  std::set<std::string> categories;
+  std::string s;
+  xml_node cnode;
+  xml_attribute xatt;
+
+  s = anode.attribute("Type").value();
+  for (cnode = anode.first_child(); cnode; cnode = cnode.next_sibling())
+  {
+    if (cnode.text().empty())
+    {
+      continue;
+    }
+    categories.insert(cnode.text().get());
+  }
+  auto* analysis = analyses.create(s);
+  if (analysis == nullptr)
+  {
+    smtkErrorMacro(m_logger, "Failed to create Analysis: " << s);
+    return;
+  }
+  analysis->setLocalCategories(categories);
+  // Does this analysis have a base type?
+  xatt = anode.attribute("BaseType");
+  if (xatt)
+  {
+    const auto* bt = xatt.value();
+    auto* parent = analyses.find(bt);
+    if (parent == nullptr)
+    {
+      smtkErrorMacro(m_logger, "Failed to set Analysis: " << s << " parent to " << bt);
+    }
+    analysis->setParent(parent);
+  }
+  xatt = anode.attribute("Exclusive");
+  if (xatt && xatt.as_bool())
+  {
+    analysis->setExclusive(true);
+  }
+  xatt = anode.attribute("Required");
+  if (xatt && xatt.as_bool())
+  {
+    analysis->setRequired(true);
+  }
+  // Does the analysis have a label?
+  xatt = anode.attribute("Label");
+  if (xatt)
+  {
+    analysis->setLabel(xatt.value());
+  }
+}
+
 void XmlDocV1Parser::processItemDefinitionBlocks(
   xml_node& root,
   std::map<std::string, std::map<std::string, TemplateInfo>>& globalTemplateMap)
@@ -809,7 +867,7 @@ void XmlDocV1Parser::processTemplatesDefinitions(
   xml_node child, node = root.child("Templates");
   if (!node)
   {
-    return; // There are no ItemBlocks
+    return; // There are no Templates
   }
 
   xml_attribute xnsatt = node.attribute("Namespace");
@@ -931,6 +989,8 @@ void XmlDocV1Parser::createDefinition(xml_node& defNode)
     smtkErrorMacro(m_logger, "Definition missing Type XML Attribute");
     return;
   }
+  auto id = this->getDefinitionID(defNode);
+
   baseType = defNode.attribute("BaseType").value();
   if (!baseType.empty())
   {
@@ -942,12 +1002,14 @@ void XmlDocV1Parser::createDefinition(xml_node& defNode)
         "Could not find Base Definition: " << baseType << " needed to create Definition: " << type);
       return;
     }
-    def = m_resource->createDefinition(type, baseDef);
+
+    def = m_resource->createDefinition(type, baseDef, id);
   }
   else
   {
-    def = m_resource->createDefinition(type);
+    def = m_resource->createDefinition(type, "", id);
   }
+
   if (!def)
   {
     if (m_reportAsError)
@@ -1133,7 +1195,7 @@ void XmlDocV1Parser::processAssociationDef(xml_node& node, DefinitionPtr def)
 // This is to support specifying category inheritance via XML Attributes
 void XmlDocV1Parser::processCategoryAtts(
   xml_node& node,
-  Categories::Set& catSet,
+  Categories::Expression& catExp,
   Categories::CombinationMode& inheritanceMode)
 {
   attribute::Categories::Set::CombinationMode catMode;
@@ -1149,15 +1211,15 @@ void XmlDocV1Parser::processCategoryAtts(
   xatt = node.attribute("CategoryCheckMode");
   if (XmlDocV1Parser::getCategoryComboMode(xatt, catMode))
   {
-    catSet.setInclusionMode(catMode);
+    catExp.setInclusionMode(catMode);
   }
 }
 
-void XmlDocV1Parser::processOldStyleCategoryNode(xml_node& node, Categories::Set& catSet)
+void XmlDocV1Parser::processOldStyleCategoryNode(xml_node& node, Categories::Expression& catExp)
 {
   for (xml_node child = node.first_child(); child; child = child.next_sibling())
   {
-    catSet.insertInclusion(child.text().get());
+    catExp.insertInclusion(child.text().get());
   }
 }
 
@@ -1170,7 +1232,7 @@ void XmlDocV1Parser::processItemDefCategoryInfoNode(xml_node& node, ItemDefiniti
 
 void XmlDocV1Parser::processCategoryInfoNode(
   xml_node& node,
-  Categories::Set& catSet,
+  Categories::Expression& catExp,
   Categories::CombinationMode& inheritanceMode)
 {
   attribute::Categories::Set::CombinationMode catMode;
@@ -1188,7 +1250,7 @@ void XmlDocV1Parser::processCategoryInfoNode(
   xatt = node.attribute("Combination");
   if (XmlDocV1Parser::getCategoryComboMode(xatt, catMode))
   {
-    catSet.setCombinationMode(catMode);
+    catExp.setCombinationMode(catMode);
   }
   // Get the Include set (if one exists)
   xml_node catGroup;
@@ -1199,11 +1261,11 @@ void XmlDocV1Parser::processCategoryInfoNode(
     xatt = catGroup.attribute("Combination");
     if (XmlDocV1Parser::getCategoryComboMode(xatt, catMode))
     {
-      catSet.setInclusionMode(catMode);
+      catExp.setInclusionMode(catMode);
     }
     for (child = catGroup.first_child(); child; child = child.next_sibling())
     {
-      catSet.insertInclusion(child.text().get());
+      catExp.insertInclusion(child.text().get());
     }
   }
   catGroup = node.child("Exclude");
@@ -1213,11 +1275,11 @@ void XmlDocV1Parser::processCategoryInfoNode(
     xatt = catGroup.attribute("Combination");
     if (XmlDocV1Parser::getCategoryComboMode(xatt, catMode))
     {
-      catSet.setExclusionMode(catMode);
+      catExp.setExclusionMode(catMode);
     }
     for (child = catGroup.first_child(); child; child = child.next_sibling())
     {
-      catSet.insertExclusion(child.text().get());
+      catExp.insertExclusion(child.text().get());
     }
   }
 }
@@ -1953,7 +2015,13 @@ smtk::common::UUID XmlDocV1Parser::getAttributeID(xml_node& attNode)
   return smtk::common::UUID::null();
 }
 
-void XmlDocV1Parser::processAttribute(xml_node& attNode)
+smtk::common::UUID XmlDocV1Parser::getDefinitionID(xml_node&)
+{
+  // Prior to V8 - Definition IDs were not stored in XML format
+  return smtk::common::UUID::null();
+}
+
+smtk::attribute::AttributePtr XmlDocV1Parser::processAttribute(xml_node& attNode)
 {
   xml_node itemsNode, assocsNode, iNode, node;
   std::string name, type;
@@ -1967,14 +2035,14 @@ void XmlDocV1Parser::processAttribute(xml_node& attNode)
   if (!xatt)
   {
     smtkErrorMacro(m_logger, "Invalid Attribute! - Missing XML Attribute Name");
-    return;
+    return smtk::attribute::AttributePtr();
   }
   name = xatt.value();
   xatt = attNode.attribute("Type");
   if (!xatt)
   {
     smtkErrorMacro(m_logger, "Invalid Attribute: " << name << "  - Missing XML Attribute Type");
-    return;
+    return smtk::attribute::AttributePtr();
   }
   type = xatt.value();
 
@@ -1986,7 +2054,7 @@ void XmlDocV1Parser::processAttribute(xml_node& attNode)
     smtkErrorMacro(
       m_logger,
       "Attribute: " << name << " of Type: " << type << "  - can not find attribute definition");
-    return;
+    return smtk::attribute::AttributePtr();
   }
 
   // Is the definition abstract?
@@ -1995,7 +2063,7 @@ void XmlDocV1Parser::processAttribute(xml_node& attNode)
     smtkErrorMacro(
       m_logger,
       "Attribute: " << name << " of Type: " << type << "  - is based on an abstract definition");
-    return;
+    return smtk::attribute::AttributePtr();
   }
 
   // Do we have a valid uuid?
@@ -2014,7 +2082,7 @@ void XmlDocV1Parser::processAttribute(xml_node& attNode)
       m_logger,
       "Attribute: " << name << " of Type: " << type
                     << "  - could not be created - is the name in use");
-    return;
+    return smtk::attribute::AttributePtr();
   }
 
   // Set the attribute include index
@@ -2127,6 +2195,7 @@ void XmlDocV1Parser::processAttribute(xml_node& attNode)
       }
     }
   }
+  return att;
 }
 
 void XmlDocV1Parser::processItem(xml_node& node, ItemPtr item)
@@ -2501,6 +2570,12 @@ void XmlDocV1Parser::processDirectoryItem(pugi::xml_node& node, attribute::Direc
 
 void XmlDocV1Parser::processDoubleItem(pugi::xml_node& node, attribute::DoubleItemPtr item)
 {
+  xml_node unitsNode = node.child("Units");
+  if (unitsNode)
+  {
+    item->setUnits(unitsNode.text().get());
+  }
+
   this->processValueItem(node, dynamic_pointer_cast<ValueItem>(item));
   processDerivedValue<attribute::DoubleItemPtr, double>(
     node, item, m_resource, m_itemExpressionInfo, m_logger);

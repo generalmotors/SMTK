@@ -85,13 +85,6 @@ public:
 
   static smtk::attribute::AttributePtr New(
     const std::string& myName,
-    const smtk::attribute::DefinitionPtr& myDefinition)
-  {
-    return smtk::attribute::AttributePtr(new Attribute(myName, myDefinition));
-  }
-
-  static smtk::attribute::AttributePtr New(
-    const std::string& myName,
     const smtk::attribute::DefinitionPtr& myDefinition,
     const smtk::common::UUID& myId)
   {
@@ -376,11 +369,12 @@ public:
   bool isAboutToBeDeleted() const { return m_aboutToBeDeleted; }
 
   const common::UUID& id() const override { return m_id; }
-  bool setId(const common::UUID& uid) override
-  {
-    m_id = uid;
-    return true;
-  }
+
+  /// Assign an ID to this attribute.
+  ///
+  /// This not supported for attributes.  The Id is set in the constructor and should
+  /// never be changed.
+  bool setId(const common::UUID& uid) override;
 
   // These methods are use primarily by I/O operations.  The include ID corresponds to
   // the include directory information store in the attribute resource and is used
@@ -401,6 +395,30 @@ public:
   // Returns an Evaluator for this Attribute if this Attribute's Definition is
   // registered with an Evaluator, else returns nullptr.
   std::unique_ptr<smtk::attribute::Evaluator> createEvaluator() const;
+
+  /// @{
+  ///\brief Set/Get the units string associated with the attribute
+  ///
+  /// This means that the information that the attributes represents
+  /// conceptually has units but unlike attribute Items, does not have a numerical value
+  /// associated with it.  For example an attribute may be used to indicate that a numerical
+  /// field being output by a simulation represents a temperature whose units should be in Kelvin.
+  ///
+  ///\brief Return the units associated to the attribute
+  ///
+  /// Returns the units that have been explicitly on the attribute, else it will return those
+  /// set on its definition
+  const std::string& units() const;
+  ///\brief Return the units explicitly set on the attribute
+  const std::string& localUnits() const { return m_localUnits; }
+  ///\brief Explicitly sets the units on the attribute
+  ///
+  /// This will fail and return false under the following circumstances:
+  /// 1. There are no units associated with its definition and the newUnits string is not empty
+  /// 2. There is no units system associated with its definition and newUnits is not the same as those on the definition
+  /// 3. There is no way to convert between the units associated with its definition and newUnits
+  bool setLocalUnits(const std::string& newUnits);
+  /// @}
 
   class GuardedLinks
   {
@@ -437,7 +455,6 @@ protected:
     const std::string& myName,
     const smtk::attribute::DefinitionPtr& myDefinition,
     const smtk::common::UUID& myId);
-  Attribute(const std::string& myName, const smtk::attribute::DefinitionPtr& myDefinition);
 
   /// Constructs the attribute from its definition
   void build();
@@ -467,6 +484,7 @@ protected:
   std::size_t m_includeIndex;
   bool m_hasLocalAdvanceLevelInfo[2];
   unsigned int m_localAdvanceLevel[2];
+  std::string m_localUnits;
 };
 
 inline smtk::simulation::UserDataPtr Attribute::userData(const std::string& key) const
