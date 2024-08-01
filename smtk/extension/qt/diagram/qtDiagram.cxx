@@ -75,16 +75,18 @@
 #include <QDockWidget>
 #include <QGraphicsScene>
 #include <QGraphicsView>
-#include <QGridLayout>
 #include <QGroupBox>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLayout>
 #include <QPalette>
 #include <QPointF>
 #include <QScrollArea>
 #include <QSizeGrip>
+#include <QSplitter>
 #include <QTimer>
 #include <QToolBar>
+#include <QVBoxLayout>
 #include <QWidget>
 #include <QWidgetAction>
 
@@ -106,11 +108,12 @@ public:
     , m_self(self)
     , m_scene(new qtDiagramScene(m_self))
     , m_widget(new QWidget)
-    // m_widget contains a QGridLayout with two overlapping widgets:
-    , m_sidebarOuterLayout(new QGridLayout(m_widget))
+    // Layout for possibly the toolbar and the rest of the widget's contents:
+    , m_mainLayout(new QVBoxLayout)
+    // Splitter  for the  diagram and drawer
+    , m_contentsSplitter(new QSplitter)
     , m_sidebarOuter(new QFrame)
     , m_view(new qtDiagramView(m_scene, m_self))
-    // m_sidebarOuter contains a QGridLayout with two overlapping widgets:
     , m_sidebarMiddleLayout(new QVBoxLayout(m_sidebarOuter))
     , m_sidebarSizer(new QSizeGrip(m_sidebarOuter))
     , m_sidebarMiddle(new QScrollArea)
@@ -121,7 +124,7 @@ public:
     , m_legend(new qtDiagramLegend("Legend", m_self))
   {
     // If this view is inside a dock-widget, take over the dock's title-bar.
-    // Otherwise, put the dock inside m_sidebarOuterLayout above m_view.
+    // Otherwise, put the dock inside m_mainLayout above m_view.
     m_dock = nullptr;
     QObject* dp = info.get<QWidget*>();
     while (dp && !m_dock)
@@ -129,28 +132,30 @@ public:
       m_dock = qobject_cast<QDockWidget*>(dp);
       dp = dp->parent();
     }
-    const int gridRow = m_dock ? 0 : 1;
     m_toolbar = new QToolBar(m_dock ? static_cast<QPointer<QWidget>>(m_dock) : m_widget);
     m_toolbar->setObjectName("DiagramToolbar");
     m_toolbar->setIconSize(QSize(16, 16));
 
+    m_mainLayout->setObjectName("MainLayout");
+    m_mainLayout->setSpacing(0);
+
     m_scene->setObjectName("DiagramScene");
-    m_widget->setObjectName("OuterDiagramGrid");
-    m_widget->setLayout(m_sidebarOuterLayout);
+    m_widget->setObjectName("OuterDiagramWdiget");
+    m_widget->setLayout(m_mainLayout);
     m_self->Widget = m_widget;
 
-    m_sidebarOuterLayout->setObjectName("SidebarOuterLayout");
-    m_sidebarOuterLayout->setSpacing(0);
+    m_contentsSplitter->setObjectName("ContentsSplitter");
     if (m_dock)
     {
       m_dock->setTitleBarWidget(m_toolbar);
     }
     else
     {
-      m_sidebarOuterLayout->addWidget(m_toolbar, 0, 0, Qt::AlignLeft | Qt::AlignTop);
+      m_mainLayout->addWidget(m_toolbar, Qt::AlignLeft | Qt::AlignTop);
     }
-    m_sidebarOuterLayout->addWidget(m_view, gridRow, 0, Qt::AlignLeft | Qt::AlignTop);
-    m_sidebarOuterLayout->addWidget(m_sidebarOuter, gridRow, 0, Qt::AlignLeft | Qt::AlignTop);
+    m_mainLayout->addWidget(m_contentsSplitter);
+    m_contentsSplitter->addWidget(m_sidebarOuter);
+    m_contentsSplitter->addWidget(m_view);
     m_sidebarOuter->setObjectName("SidebarOuter");
     // Mark the sidebar "outer" widget as a subwindow so it will
     // be resized by the QSizeGrip contained inside in the "middle" layout.
@@ -332,6 +337,11 @@ public:
               if (child.attributeAsBool("Default") || !defaultMode)
               {
                 defaultMode = viewMode.get();
+              }
+              if (!child.attributeAsString("Shortcut").empty())
+              {
+                  QString shortcut = QString::fromStdString(child.attributeAsString("Shortcut"));
+                  viewMode->modeAction()->setShortcut(QKeySequence(shortcut));
               }
             }
             else
@@ -538,8 +548,12 @@ public:
       vv(std::static_pointer_cast<smtk::resource::Component>(value));
     }
 
-    // Now iterate over diagram generators to process the objects.
+    // Now iterate over diagram modes and generators to process the objects.
     this->resetViewHints();
+    for (const auto& entry : m_modeMap)
+    {
+      entry.second->updateFromOperation(created, modified, expunged, op, result);
+    }
     for (const auto& entry : m_generators)
     {
       entry.second->updateScene(created, modified, expunged, op, result);
@@ -576,7 +590,8 @@ public:
   qtDiagramScene* m_scene{ nullptr };
   QPointer<QWidget> m_widget;
 
-  QPointer<QGridLayout> m_sidebarOuterLayout;
+  QPointer<QVBoxLayout> m_mainLayout;
+  QPointer<QSplitter> m_contentsSplitter;
   QPointer<QFrame> m_sidebarOuter;
   qtDiagramView* m_view{ nullptr };
 

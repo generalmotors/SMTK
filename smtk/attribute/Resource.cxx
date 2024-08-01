@@ -29,6 +29,7 @@
 #include "smtk/resource/filter/Filter.h"
 
 #include "smtk/common/UUID.h"
+#include "smtk/common/UUIDGenerator.h"
 
 #include "units/System.h"
 
@@ -93,7 +94,8 @@ bool Resource::setUnitsSystem(const shared_ptr<units::System>& unitsSystem)
 
 smtk::attribute::DefinitionPtr Resource::createDefinition(
   const std::string& typeName,
-  const std::string& baseTypeName)
+  const std::string& baseTypeName,
+  const smtk::common::UUID& id)
 {
   smtk::attribute::DefinitionPtr def = this->findDefinition(typeName);
   // Does this definition already exist
@@ -111,8 +113,18 @@ smtk::attribute::DefinitionPtr Resource::createDefinition(
       return smtk::attribute::DefinitionPtr();
     }
   }
-  smtk::attribute::DefinitionPtr newDef(new Definition(typeName, def, shared_from_this()));
+
+  auto newDefId = id;
+  if (newDefId.isNull())
+  {
+    // We need to create a new id
+    newDefId = smtk::common::UUIDGenerator::instance().random();
+  }
+
+  smtk::attribute::DefinitionPtr newDef(
+    new Definition(typeName, def, shared_from_this(), newDefId));
   m_definitions[typeName] = newDef;
+  m_definitionIdMap[newDefId] = newDef;
   if (def)
   {
     // Need to add this new definition to the list of derived defs
@@ -124,18 +136,28 @@ smtk::attribute::DefinitionPtr Resource::createDefinition(
 
 smtk::attribute::DefinitionPtr Resource::createDefinition(
   const std::string& typeName,
-  smtk::attribute::DefinitionPtr baseDef)
+  smtk::attribute::DefinitionPtr baseDef,
+  const smtk::common::UUID& id)
 {
   smtk::attribute::DefinitionPtr def = this->findDefinition(typeName);
   // Does this definition already exist or if the base def is not part
-  // of this manger
-  if (!(!def && (!baseDef || ((baseDef->resource() == shared_from_this())))))
+  // of this resource
+  if (def || (baseDef && (baseDef->attributeResource().get() != this)))
   {
     return smtk::attribute::DefinitionPtr();
   }
 
-  smtk::attribute::DefinitionPtr newDef(new Definition(typeName, baseDef, shared_from_this()));
+  auto newDefId = id;
+  if (newDefId.isNull())
+  {
+    // We need to create a new id
+    newDefId = smtk::common::UUIDGenerator::instance().random();
+  }
+
+  smtk::attribute::DefinitionPtr newDef(
+    new Definition(typeName, baseDef, shared_from_this(), newDefId));
   m_definitions[typeName] = newDef;
+  m_definitionIdMap[newDefId] = newDef;
   if (baseDef)
   {
     // Need to add this new definition to the list of derived defs
@@ -147,11 +169,11 @@ smtk::attribute::DefinitionPtr Resource::createDefinition(
 
 bool Resource::removeDefinition(DefinitionPtr def)
 {
-  if (!def || def->resource() != shared_from_this())
+  if (!def || def->attributeResource() != shared_from_this())
   {
-    std::cerr << "ERROR: " << def->type()
-              << " does not belong to the specified"
-                 " attribute Resource!";
+    smtkErrorMacro(
+      smtk::io::Logger::instance(),
+      def->type() << " does not belong to the specified attribute Resource!");
     return false;
   }
 
@@ -159,8 +181,9 @@ bool Resource::removeDefinition(DefinitionPtr def)
   const bool hasChildren = childrenIt != m_derivedDefInfo.cend() && !(*childrenIt).second.empty();
   if (hasChildren)
   {
-    std::cerr << "ERROR: Removing base Definition instances is not"
-                 " supported!\n";
+    smtkErrorMacro(
+      smtk::io::Logger::instance(),
+      "Can not delete " << def->type() << " since it is the basis for other definitions!");
     return false;
   }
 
@@ -178,31 +201,46 @@ bool Resource::removeDefinition(DefinitionPtr def)
   }
 
   m_definitions.erase(def->type());
+  m_definitionIdMap.erase(def->id());
   this->setClean(false);
   return true;
 }
 
 smtk::attribute::AttributePtr Resource::createAttribute(
   const std::string& name,
-  smtk::attribute::DefinitionPtr def)
+  smtk::attribute::DefinitionPtr def,
+  const smtk::common::UUID& id)
 {
-  // Make sure the definition belongs to this Resource or if the definition
-  // is abstract
-  if ((def->resource() != shared_from_this()) || def->isAbstract())
+  auto newAttId = id;
+  // if the id was provided then we need to check to see if it is in use
+  // else we need to generate a new one
+  if (newAttId.isNull())
+  {
+    newAttId = smtk::common::UUIDGenerator::instance().random();
+  }
+  else if (this->findAttribute(newAttId) != nullptr)
   {
     return smtk::attribute::AttributePtr();
   }
-  // Next we need to check to see if an attribute exists by the same name
+
+  // Lets make sure the definition is valid
+  if ((def == nullptr) || (def->attributeResource() != shared_from_this()) || def->isAbstract())
+  {
+    return smtk::attribute::AttributePtr();
+  }
+
+  // We need to check to see if an attribute exists by the same name
   smtk::attribute::AttributePtr a = this->findAttribute(name);
   if (a)
   {
     return smtk::attribute::AttributePtr();
   }
-  a = Attribute::New(name, def);
+
+  a = Attribute::New(name, def, newAttId);
   a->build();
   m_attributeClusters[def->type()].insert(a);
   m_attributes[name] = a;
-  m_attributeIdMap[a->id()] = a;
+  m_attributeIdMap[newAttId] = a;
   this->setClean(false);
   return a;
 }
@@ -229,15 +267,42 @@ smtk::attribute::AttributePtr Resource::createAttribute(const std::string& typeN
 
 smtk::attribute::AttributePtr Resource::createAttribute(
   const std::string& name,
-  const std::string& typeName)
+  const std::string& typeName,
+  const smtk::common::UUID& id)
 {
   smtk::attribute::DefinitionPtr def = this->findDefinition(typeName);
-  if ((def == nullptr) || def->isAbstract())
+  if (def == nullptr)
   {
     return smtk::attribute::AttributePtr();
   }
-  smtk::attribute::AttributePtr att = this->createAttribute(name, def);
-  return att;
+  return this->createAttribute(name, def, id);
+}
+
+bool Resource::removeAttribute(smtk::attribute::AttributePtr att)
+{
+  // Make sure that this Resource is managing this attribute
+  if (!att || att->attributeResource() != shared_from_this())
+  {
+    return false;
+  }
+  if (!att->removeAllAssociations(false))
+  {
+    return false;
+  }
+
+  att->detachItemsFromOwningResource();
+
+  if (m_attributes.find(att->name()) == m_attributes.end())
+  {
+    smtkErrorMacro(
+      smtk::io::Logger::instance(), "Resource doesn't have attribute named: " << att->name());
+    return false;
+  }
+  m_attributes.erase(att->name());
+  m_attributeIdMap.erase(att->id());
+  m_attributeClusters[att->type()].erase(att);
+  this->setClean(false);
+  return true;
 }
 
 void Resource::definitions(std::vector<smtk::attribute::DefinitionPtr>& result, bool sortList) const
@@ -274,79 +339,6 @@ void Resource::attributes(std::vector<smtk::attribute::AttributePtr>& result) co
   {
     result[i] = it->second;
   }
-}
-
-// For Reader classes - Note that since these methods are restoring an attribute
-// into the resource it does not call setClean(false)
-smtk::attribute::AttributePtr Resource::createAttribute(
-  const std::string& name,
-  smtk::attribute::DefinitionPtr def,
-  const smtk::common::UUID& id)
-{
-  // Lets verify that the id is not already in use
-  if (this->findAttribute(id) != nullptr)
-  {
-    return smtk::attribute::AttributePtr();
-  }
-
-  // Lets make sure the definition is valid
-  if ((def == nullptr) || (def->resource() != shared_from_this()) || def->isAbstract())
-  {
-    return smtk::attribute::AttributePtr();
-  }
-
-  // We need to check to see if an attribute exists by the same name
-  smtk::attribute::AttributePtr a = this->findAttribute(name);
-  if (a)
-  {
-    return smtk::attribute::AttributePtr();
-  }
-
-  a = Attribute::New(name, def, id);
-  a->build();
-  m_attributeClusters[def->type()].insert(a);
-  m_attributes[name] = a;
-  m_attributeIdMap[id] = a;
-  return a;
-}
-
-smtk::attribute::AttributePtr Resource::createAttribute(
-  const std::string& name,
-  const std::string& typeName,
-  const smtk::common::UUID& id)
-{
-  smtk::attribute::DefinitionPtr def = this->findDefinition(typeName);
-  if (def == nullptr)
-  {
-    return smtk::attribute::AttributePtr();
-  }
-  return this->createAttribute(name, def, id);
-}
-
-bool Resource::removeAttribute(smtk::attribute::AttributePtr att)
-{
-  // Make sure that this Resource is managing this attribute
-  if (!att || att->attributeResource() != shared_from_this())
-  {
-    return false;
-  }
-  if (!att->removeAllAssociations(false))
-  {
-    return false;
-  }
-
-  att->detachItemsFromOwningResource();
-
-  if (m_attributes.find(att->name()) == m_attributes.end())
-  {
-    std::cerr << "Resource doesn't have attribute named: " << att->name() << std::endl;
-    return false;
-  }
-  m_attributes.erase(att->name());
-  m_attributeIdMap.erase(att->id());
-  m_attributeClusters[att->type()].erase(att);
-  this->setClean(false);
-  return true;
 }
 
 /**\brief Find the attribute definitions that can be associated with \a mask.
@@ -388,7 +380,7 @@ void Resource::findAttributes(
   std::vector<smtk::attribute::AttributePtr>& result) const
 {
   result.clear();
-  if (def && (def->resource() == shared_from_this()))
+  if (def && (def->attributeResource() == shared_from_this()))
   {
     this->internalFindAttributes(def, result);
   }
@@ -423,7 +415,7 @@ void Resource::findAllDerivedDefinitions(
   std::vector<smtk::attribute::DefinitionPtr>& result) const
 {
   result.clear();
-  if (def && (def->resource() == shared_from_this()))
+  if (def && (def->attributeResource() == shared_from_this()))
   {
     this->internalFindAllDerivedDefinitions(def, onlyConcrete, result);
   }
@@ -525,6 +517,7 @@ void Resource::finalizeDefinitions()
     def->applyCategories(initialCats);
     def->applyAdvanceLevels(0, 0);
   }
+
   // Now all of the definitions have been processed we need to combine all
   // of their categories to form the Resource's categories
   m_categories.clear();
@@ -706,24 +699,27 @@ smtk::attribute::DefinitionPtr Resource::copyDefinition(
       if (!expDef)
       {
         // Lets see if we can copy the Definition from the source to this Resource
-        smtk::attribute::DefinitionPtr sourceExpDef = sourceDef->resource()->findDefinition(type);
+        smtk::attribute::DefinitionPtr sourceExpDef =
+          sourceDef->attributeResource()->findDefinition(type);
         // Definition missing only if source Resource is invalid, but check anyway
 
         if (sourceExpDef)
         {
           // Attempt to Copy definition
-          std::cout << "Copying \"" << type << "\" definition" << std::endl;
           expDef = this->copyDefinition(sourceExpDef);
           if (!expDef)
           {
-            std::cerr << "ERROR: Unable to copy expression definition " << type
-                      << " -- copy operation incomplete" << std::endl;
+            smtkErrorMacro(
+              smtk::io::Logger::instance(),
+              "Unable to copy expression definition " << type << " -- copy operation incomplete");
           }
         }
         else
         {
-          std::cout << "Unable to find source expression definition " << type
-                    << " -- assuming it is external to the Resource" << std::endl;
+          smtkWarningMacro(
+            smtk::io::Logger::instance(),
+            "Unable to find source expression definition "
+              << type << " -- assuming it is external to the Resource");
         }
       }
       if (expDef)
@@ -741,6 +737,7 @@ smtk::attribute::DefinitionPtr Resource::copyDefinition(
 }
 
 // Copies attribute definition into this Resource, returning true if successful
+// When copying definitions, their IDs will also be copied.
 bool Resource::copyDefinitionImpl(
   smtk::attribute::DefinitionPtr sourceDef,
   smtk::attribute::ItemDefinition::CopyInfo& info)
@@ -749,7 +746,8 @@ bool Resource::copyDefinitionImpl(
   std::string typeName = sourceDef->type();
   if (this->findDefinition(typeName))
   {
-    std::cerr << "WARNING: Will not overwrite attribute definition " << typeName << std::endl;
+    smtkWarningMacro(
+      smtk::io::Logger::instance(), "Will not overwrite attribute definition " << typeName);
     return false;
   }
 
@@ -769,20 +767,21 @@ bool Resource::copyDefinitionImpl(
       }
     }
 
-    // Retrieve base definition and create new def
+    // Retrieve base definition and create new def with the same uuid
     smtk::attribute::DefinitionPtr newBaseDef = this->findDefinition(baseTypeName);
-    newDef = this->createDefinition(typeName, newBaseDef);
+    newDef = this->createDefinition(typeName, newBaseDef, sourceDef->id());
   }
   else
   {
     // No base definition
-    newDef = this->createDefinition(typeName);
+    newDef = this->createDefinition(typeName, "", sourceDef->id());
   }
 
   // Set contents of new definition (defer categories)
   newDef->setLabel(sourceDef->label());
   newDef->setVersion(sourceDef->version());
   newDef->setIsAbstract(sourceDef->isAbstract());
+  newDef->setLocalUnits(sourceDef->localUnits());
   if (sourceDef->hasLocalAdvanceLevelInfo(0))
   {
     newDef->setLocalAdvanceLevel(0, sourceDef->localAdvanceLevel(0));
@@ -1043,9 +1042,12 @@ const std::map<std::string, smtk::view::Configuration::Component>& Resource::fin
   return dummy;
 }
 
-smtk::resource::ComponentPtr Resource::find(const smtk::common::UUID& attId) const
+smtk::resource::ComponentPtr Resource::find(const smtk::common::UUID& compId) const
 {
-  return this->findAttribute(attId);
+  // First check to see if we have an attribute by that ID, if not then look for
+  // a definition
+  smtk::resource::ComponentPtr comp = this->findAttribute(compId);
+  return (comp ? comp : this->findDefinition(compId));
 }
 
 std::string Resource::createAttributeQuery(const smtk::attribute::DefinitionPtr& def)
@@ -1200,6 +1202,10 @@ std::shared_ptr<smtk::resource::Resource> Resource::clone(
     return rsrc;
   }
 
+  // Insert the source of the original into the object mapping
+  // so its properties can be copied if need
+  options.objectMapping()[this->id()] = rsrc.get();
+
   if (this->isNameSet())
   {
     rsrc->setName(this->name());
@@ -1243,6 +1249,8 @@ std::shared_ptr<smtk::resource::Resource> Resource::clone(
     }
   }
 
+  // Copy all of its analyses
+  rsrc->m_analyses = this->m_analyses;
   return rsrc;
 }
 
@@ -1257,22 +1265,27 @@ bool Resource::copyInitialize(
     return false;
   }
 
+  // copy the active category information
+  m_activeCategoriesEnabled = source->m_activeCategoriesEnabled;
+  m_activeCategories = source->m_activeCategories;
+
   std::vector<smtk::attribute::AttributePtr> allAttributes;
   if (options.copyComponents())
   {
     // Construct options for copying attributes but not their contents.
     smtk::attribute::CopyAssignmentOptions attOptions;
 
-    attOptions.copyOptions.setCopyUUID(false);
-    attOptions.copyOptions.setPerformAssignment(false);
-    attOptions.copyOptions.setCopyDefinition(
-      false); // These should already be present from clone().
-
     if (options.suboptions().contains<smtk::attribute::CopyAssignmentOptions>())
     {
       // Our caller is providing an override.
       attOptions = options.suboptions().get<smtk::attribute::CopyAssignmentOptions>();
     }
+    // Since this method only copies the structure of the resource and not the attributes'
+    // items' value and the fact that the definition information should have already been
+    // copied in the clone method - these options should always be off.
+    attOptions.copyOptions.setCopyUUID(false);
+    attOptions.copyOptions.setPerformAssignment(false);
+    attOptions.copyOptions.setCopyDefinition(false);
 
     // Copy all the attributes.
     source->attributes(allAttributes);
@@ -1311,27 +1324,28 @@ bool Resource::copyFinalize(
   }
 
   smtk::attribute::CopyAssignmentOptions attOptions;
+  if (options.suboptions().contains<smtk::attribute::CopyAssignmentOptions>())
+  {
+    // Our caller is providing an override.
+    attOptions = options.suboptions().get<smtk::attribute::CopyAssignmentOptions>();
+  }
+  else
+  {
+    // Set some realistic defaults
 
-  // I. Copy associations and reference-item data.
+    // There should be no need to validate these
+    attOptions.attributeOptions.setDoNotValidateAssociations(true);
+    attOptions.itemOptions.setDoNotValidateReferenceInfo(true);
 
-  // None of the copy options should be needed since all of the
-  // attributes should already be copied
-  attOptions.copyOptions.setCopyUUID(false);
-  attOptions.copyOptions.setPerformAssignment(true);
-  attOptions.copyOptions.setCopyDefinition(false); // These should already be present from clone().
+    attOptions.attributeOptions.setCopyAssociations(true);
+  }
 
-  attOptions.attributeOptions.setIgnoreMissingItems(false);
-  attOptions.attributeOptions.setAllowPartialAssociations(false);
-  attOptions.attributeOptions.setDoNotValidateAssociations(
-    true); // There should be no need to validate
-  attOptions.attributeOptions.setCopyAssociations(true);
-  attOptions.attributeOptions.setObjectMapping(&options.objectMapping());
-
-  attOptions.itemOptions.setIgnoreMissingChildren(false);
-  attOptions.itemOptions.setAllowPartialValues(false);
-  attOptions.itemOptions.setIgnoreReferenceValues(false);
-  attOptions.itemOptions.setDoNotValidateReferenceInfo(true);
+  // All of the required attributes should already be copied - this option should
+  // always be off
   attOptions.itemOptions.setDisableCopyAttributes(true);
+
+  // Set the object mapping
+  attOptions.attributeOptions.setObjectMapping(&options.objectMapping());
   attOptions.itemOptions.setObjectMapping(&options.objectMapping());
 
   // for each attribute in the source resource copy assign its data to its copy
@@ -1368,6 +1382,24 @@ bool Resource::copyFinalize(
         options.log(),
         "Could not assign Attribute: " << sourceAtt->name() << "'s information to attribute copy.");
       status = false;
+    }
+  }
+
+  // Deal with the resources directly associated with this one
+  auto associatedResources = sourceAttResource->associations();
+  for (const auto& assoRes : associatedResources)
+  {
+    // See if this resource was copied
+    auto* destRes = options.targetObjectFromSourceId<smtk::resource::Resource>(assoRes->id());
+
+    if (destRes == nullptr)
+    {
+      // This resource was not copied so just add it to the copied attribute resource
+      this->associate(assoRes);
+    }
+    else
+    {
+      this->associate(destRes->shared_from_this());
     }
   }
 
@@ -1434,7 +1466,7 @@ void Resource::setActiveCategories(const std::set<std::string>& cats)
   m_activeCategories = cats;
 }
 
-bool Resource::passActiveCategoryCheck(const smtk::attribute::Categories::Set& cats) const
+bool Resource::passActiveCategoryCheck(const smtk::attribute::Categories::Expression& cats) const
 {
   if (!m_activeCategoriesEnabled)
   {
