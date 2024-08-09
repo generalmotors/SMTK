@@ -7,9 +7,6 @@
 //  the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
 //  PURPOSE.  See the above copyright notice for more information.
 //=========================================================================
-#ifndef smtk_attribute_ReferenceItemDefinition_txx
-#define smtk_attribute_ReferenceItemDefinition_txx
-
 #include "smtk/attribute/ReferenceItemDefinition.h"
 
 #include "smtk/attribute/Attribute.h"
@@ -224,6 +221,11 @@ void ReferenceItemDefinition::copyTo(Ptr dest, smtk::attribute::ItemDefinition::
   dest->setNumberOfRequiredValues(m_numberOfRequiredValues);
   dest->setMaxNumberOfValues(m_maxNumberOfValues);
   dest->setIsExtensible(m_isExtensible);
+  dest->setRole(m_role);
+  dest->setHoldReference(m_holdReference);
+  dest->setEnforcesCategories(m_enforcesCategories);
+  dest->setLockType(m_lockType);
+  dest->setOnlyResources(m_onlyResources);
   for (const auto& acceptable : m_acceptable)
   {
     dest->setAcceptsEntries(acceptable.first, acceptable.second, true);
@@ -260,6 +262,22 @@ void ReferenceItemDefinition::copyTo(Ptr dest, smtk::attribute::ItemDefinition::
   dest->m_resourceQueries = m_resourceQueries;
   dest->m_componentQueries = m_componentQueries;
   dest->m_conditionalItemNames = m_conditionalItemNames;
+}
+
+std::string ReferenceItemDefinition::criteriaAsString() const
+{
+  std::string s;
+  s.append("Rejection Criteria\n");
+  for (const auto& rejected : m_rejected)
+  {
+    s.append("\t(").append(rejected.first).append(", ").append(rejected.second).append(")\n");
+  }
+  s.append("Acceptance Criteria\n");
+  for (const auto& accepted : m_acceptable)
+  {
+    s.append("\t(").append(accepted.first).append(", ").append(accepted.second).append(")\n");
+  }
+  return s;
 }
 
 bool ReferenceItemDefinition::checkResource(const smtk::resource::Resource& rsrc) const
@@ -517,4 +535,3 @@ void ReferenceItemDefinition::setUnitsSystem(const shared_ptr<units::System>& un
 }
 } // namespace attribute
 } // namespace smtk
-#endif

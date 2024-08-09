@@ -11,6 +11,7 @@
 
 #include "smtk/extension/qt/qtBaseAttributeView.h"
 #include "smtk/extension/qt/qtUIManager.h"
+#include "smtk/extension/qt/qtUnitsLineEdit.h"
 
 #include "smtk/attribute/Attribute.h"
 #include "smtk/attribute/ComponentItem.h"
@@ -24,6 +25,8 @@
 #include "smtk/attribute/ReferenceItem.h"
 #include "smtk/attribute/ValueItem.h"
 #include "smtk/attribute/VoidItem.h"
+
+#include "smtk/common/StringUtil.h"
 
 #include "smtk/io/Logger.h"
 
@@ -42,6 +45,12 @@ using namespace smtk::extension;
 class qtAttributeInternals
 {
 public:
+  enum UnitsMode
+  {
+    Editable,
+    ViewOnly,
+    None
+  };
   qtAttributeInternals(
     smtk::attribute::AttributePtr myAttribute,
     const smtk::view::Configuration::Component& comp,
@@ -61,6 +70,23 @@ public:
     }
     auto iviews = m_attComp.child(sindex);
     qtAttributeItemInfo::buildFromComponent(iviews, m_view, m_itemViewMap);
+    std::string unitsStr;
+    if (m_attComp.attribute("UnitsMode", unitsStr))
+    {
+      smtk::common::StringUtil::lower(unitsStr);
+      if (unitsStr == "none")
+      {
+        m_unitsMode = UnitsMode::None;
+      }
+      else if (unitsStr == "viewonly")
+      {
+        m_unitsMode = UnitsMode::ViewOnly;
+      }
+      else if (unitsStr == "editable")
+      {
+        m_unitsMode = UnitsMode::Editable;
+      }
+    }
   }
 
   ~qtAttributeInternals() = default;
@@ -70,6 +96,7 @@ public:
   QPointer<qtBaseAttributeView> m_view;
   smtk::view::Configuration::Component m_attComp;
   std::map<std::string, qtAttributeItemInfo> m_itemViewMap;
+  UnitsMode m_unitsMode = UnitsMode::Editable;
 };
 
 qtAttribute::qtAttribute(
@@ -84,7 +111,6 @@ qtAttribute::qtAttribute(
   m_widget = nullptr;
   m_useSelectionManager = false;
   this->createWidget(createWidgetWhenEmpty);
-  m_isEmpty = true;
 }
 
 qtAttribute::~qtAttribute()
@@ -108,39 +134,63 @@ void qtAttribute::removeItems()
 
 void qtAttribute::createWidget(bool createWidgetWhenEmpty)
 {
-  // Initially there are no items being displayed
+  // A qtAttribute is empty if it has no items to display and if it
+  // does not need to display its units.  Assume that it is empty and then
+  // updated it if that is not the case.
   m_isEmpty = true;
-  auto att = this->attribute();
-  if ((att == nullptr) || ((att->numberOfItems() == 0) && (att->associations() == nullptr)))
-  {
-    return;
-  }
 
-  int numShowItems = 0;
-  std::size_t i, n = att->numberOfItems();
-  if (m_internals->m_view)
+  auto att = this->attribute();
+  if (!createWidgetWhenEmpty)
   {
-    for (i = 0; i < n; i++)
+    if (
+      (att == nullptr) ||
+      ((att->numberOfItems() == 0) && (att->associations() == nullptr) &&
+       ((!att->supportsUnits()) ||
+        (m_internals->m_unitsMode == qtAttributeInternals::UnitsMode::None))))
     {
-      if (m_internals->m_view->displayItem(att->item(static_cast<int>(i))))
+      return;
+    }
+
+    // Based on the View, see if the attribute should be displayed
+    if (!m_internals->m_view->displayAttribute(att))
+    {
+      return;
+    }
+
+    // We will always display units if there are any associated with the attribute and we were told to display them else
+    // we need to see if any items would be displayed
+    if (
+      (!att->supportsUnits()) ||
+      (m_internals->m_unitsMode == qtAttributeInternals::UnitsMode::None))
+    {
+      int numShowItems = 0;
+      std::size_t i, n = att->numberOfItems();
+      if (m_internals->m_view)
       {
-        numShowItems++;
+        for (i = 0; i < n; i++)
+        {
+          if (m_internals->m_view->displayItem(att->item(static_cast<int>(i))))
+          {
+            numShowItems++;
+          }
+        }
+        // also check associations
+        if (m_internals->m_view->displayItem(att->associations()))
+        {
+          numShowItems++;
+        }
+      }
+      else // show everything
+      {
+        numShowItems = static_cast<int>(att->associations() ? n + 1 : n);
+      }
+      if (numShowItems == 0)
+      {
+        return;
       }
     }
-    // also check associations
-    if (m_internals->m_view->displayItem(att->associations()))
-    {
-      numShowItems++;
-    }
   }
-  else // show everything
-  {
-    numShowItems = static_cast<int>(att->associations() ? n + 1 : n);
-  }
-  if ((numShowItems == 0) && !createWidgetWhenEmpty)
-  {
-    return;
-  }
+
   m_isEmpty = false;
   QFrame* attFrame = new QFrame(this->parentWidget());
   attFrame->setObjectName(att->name().c_str());
@@ -195,6 +245,50 @@ void qtAttribute::createBasicLayout(bool includeAssociations)
   qtItem* qItem = nullptr;
   smtk::attribute::AttributePtr att = this->attribute();
   auto* uiManager = m_internals->m_view->uiManager();
+
+  // If the attribute has units and we were told not to ignore them then display them
+  if (att->supportsUnits() && (m_internals->m_unitsMode != qtAttributeInternals::UnitsMode::None))
+  {
+    QFrame* unitFrame = new QFrame(this->m_widget);
+    std::string unitFrameName = att->name() + "UnitsFrame";
+    unitFrame->setObjectName(unitFrameName.c_str());
+    unitFrame->setFrameShape(QFrame::NoFrame);
+
+    QHBoxLayout* unitsLayout = new QHBoxLayout(unitFrame);
+    std::string unitsLayoutName = att->name() + "UnitsLayout";
+    unitsLayout->setObjectName(unitsLayoutName.c_str());
+    unitsLayout->setMargin(0);
+    unitFrame->setLayout(unitsLayout);
+    std::string unitsLabel = att->name() + "'s units:";
+
+    // Are we suppose to allow editing?
+    if (m_internals->m_unitsMode == qtAttributeInternals::UnitsMode::Editable)
+    {
+      QLabel* uLabel = new QLabel(unitsLabel.c_str(), unitFrame);
+      unitsLayout->addWidget(uLabel);
+
+      // If the attribute's definition has explicit units use them else use those set explicitly on the attribute
+      QString baseUnits = (att->definition()->units() == "*") ? att->units().c_str()
+                                                              : att->definition()->units().c_str();
+      auto* unitsWidget =
+        new qtUnitsLineEdit(baseUnits, att->definition()->unitsSystem(), uiManager, unitFrame);
+      std::string unitsWidgetName = att->name() + "UnitsLineWidget";
+      unitsWidget->setObjectName(unitsWidgetName.c_str());
+      unitsLayout->addWidget(unitsWidget);
+      unitsWidget->setAndClassifyText(att->units().c_str());
+      // Create a regular expression validator to prevent leading spaces
+      QObject::connect(
+        unitsWidget, &qtUnitsLineEdit::editingCompleted, this, &qtAttribute::onUnitsChanged);
+    }
+    else // Units are to be displayed read only
+    {
+      unitsLabel.append(att->units());
+      QLabel* uLabel = new QLabel(unitsLabel.c_str(), unitFrame);
+      unitsLayout->addWidget(uLabel);
+    }
+    layout->addWidget(unitFrame);
+    m_isEmpty = false;
+  }
   // If there are model associations for the attribute, create UI for them if requested.
   // This will be the same widget used for ModelEntityItem.
   if (includeAssociations && att->associations())
@@ -296,4 +390,13 @@ bool qtAttribute::isValid() const
     return att->isValid();
   }
   return true;
+}
+
+void qtAttribute::onUnitsChanged(QString newUnits)
+{
+  auto att = this->attribute();
+  if (att && att->setLocalUnits(newUnits.toStdString()))
+  {
+    Q_EMIT this->modified();
+  }
 }

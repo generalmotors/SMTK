@@ -17,6 +17,8 @@
 #include "smtk/attribute/ValueItem.h"
 #include "smtk/attribute/ValueItemDefinition.h"
 
+#include "units/System.h"
+
 #include <iostream>
 
 using namespace smtk::attribute;
@@ -399,7 +401,7 @@ bool ValueItemDefinition::getEnumIndex(const std::string& enumVal, std::size_t& 
 
 void ValueItemDefinition::setEnumCategories(
   const std::string& enumValue,
-  const smtk::attribute::Categories::Set& cats)
+  const smtk::attribute::Categories::Expression& exp)
 {
   if (
     std::find(m_discreteValueEnums.begin(), m_discreteValueEnums.end(), enumValue) ==
@@ -407,7 +409,7 @@ void ValueItemDefinition::setEnumCategories(
   {
     return; // enum not defined
   }
-  m_valueToCategoryAssociations[enumValue] = cats;
+  m_valueToCategoryAssociations[enumValue] = exp;
 }
 
 void ValueItemDefinition::addEnumCategory(const std::string& enumValue, const std::string& cat)
@@ -418,13 +420,16 @@ void ValueItemDefinition::addEnumCategory(const std::string& enumValue, const st
   {
     return; // enum not defined
   }
-  m_valueToCategoryAssociations[enumValue].insertInclusion(cat);
+  std::string expString("'");
+  expString.append(cat).append("'");
+  m_valueToCategoryAssociations[enumValue].setExpression(expString);
 }
 
-const smtk::attribute::Categories::Set& ValueItemDefinition::enumCategories(
+const smtk::attribute::Categories::Expression& ValueItemDefinition::enumCategories(
   const std::string& enumValue) const
 {
-  static smtk::attribute::Categories::Set dummy;
+  static smtk::attribute::Categories::Expression dummy;
+  dummy.setAllPass();
   auto result = m_valueToCategoryAssociations.find(enumValue);
   if (result == m_valueToCategoryAssociations.end())
   {
@@ -482,6 +487,33 @@ bool ValueItemDefinition::addItemDefinition(smtk::attribute::ItemDefinitionPtr c
   return true;
 }
 
+bool ValueItemDefinition::defaultIsEnumRelevant(
+  int enumIndex,
+  bool includeCategories,
+  const std::set<std::string>& testCategories,
+  bool includeReadAccess,
+  unsigned int readAccessLevel) const
+{
+  if (includeCategories)
+  {
+    const auto& catExp = this->enumCategories(m_discreteValueEnums[enumIndex]);
+    if (catExp.allPass() || catExp.passes(testCategories))
+    {
+      if (
+        (!includeReadAccess) ||
+        (this->enumAdvanceLevel(m_discreteValueEnums[enumIndex]) <= readAccessLevel))
+      {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  return (
+    (!includeReadAccess) ||
+    (this->enumAdvanceLevel(m_discreteValueEnums[enumIndex]) <= readAccessLevel));
+}
+
 std::vector<std::string> ValueItemDefinition::relevantEnums(
   bool includeCategories,
   const std::set<std::string>& testCategories,
@@ -494,30 +526,12 @@ std::vector<std::string> ValueItemDefinition::relevantEnums(
     return m_discreteValueEnums;
   }
 
-  if (includeCategories)
+  for (std::size_t i = 0; i < m_discreteValueEnums.size(); i++)
   {
-    for (std::size_t i = 0; i < m_discreteValueEnums.size(); i++)
+    if (this->defaultIsEnumRelevant(
+          i, includeCategories, testCategories, includeReadAccess, readAccessLevel))
     {
-      const auto& cats = this->enumCategories(m_discreteValueEnums[i]);
-      if (cats.empty() || cats.passes(testCategories))
-      {
-        if (
-          (!includeReadAccess) ||
-          (this->enumAdvanceLevel(m_discreteValueEnums[i]) <= readAccessLevel))
-        {
-          result.push_back(m_discreteValueEnums[i]);
-        }
-      }
-    }
-  }
-  else
-  {
-    for (std::size_t i = 0; i < m_discreteValueEnums.size(); i++)
-    {
-      if (this->enumAdvanceLevel(m_discreteValueEnums[i]) <= readAccessLevel)
-      {
-        result.push_back(m_discreteValueEnums[i]);
-      }
+      result.push_back(m_discreteValueEnums[i]);
     }
   }
   return result;
@@ -542,11 +556,32 @@ bool ValueItemDefinition::isDiscreteIndexValid(int index, const std::set<std::st
     return false;
   }
 
-  const auto& cats = this->enumCategories(m_discreteValueEnums[index]);
-  return (cats.empty() || cats.passes(categories));
+  const auto& catExp = this->enumCategories(m_discreteValueEnums[index]);
+  return (catExp.allPass() || catExp.passes(categories));
 }
 
 bool ValueItemDefinition::isDiscreteIndexValid(int index) const
 {
   return ((index > -1) && (static_cast<unsigned int>(index) < m_discreteValueEnums.size()));
+}
+
+bool ValueItemDefinition::hasSupportedUnits() const
+{
+  if (!(m_units.empty() || (m_unitsSystem == nullptr)))
+  {
+    bool status;
+    auto defUnit = m_unitsSystem->unit(m_units, &status);
+    return status;
+  }
+  return false;
+}
+
+std::string ValueItemDefinition::supportedUnits() const
+{
+  bool status = false;
+  if (!(m_units.empty() || (m_unitsSystem == nullptr)))
+  {
+    auto defUnit = m_unitsSystem->unit(m_units, &status);
+  }
+  return (status ? m_units : std::string());
 }
