@@ -16,6 +16,9 @@
 #include "smtk/attribute/Resource.h"
 #include "smtk/attribute/ValueItemDefinition.h"
 
+#include "units/Converter.h"
+#include "units/System.h"
+
 #include <algorithm> // for std::find
 #include <iostream>
 
@@ -156,9 +159,9 @@ bool ValueItem::isValidInternal(bool useCategories, const std::set<std::string>&
 
   // Let check to make sure all of the values are set.  In the case of discrete values
   // we need to also make sure values are still valid since enumerations can depend on
-  // the set of categories enabled
+  // the set of categories enabled and possibly a custom isEnumRelevant function
 
-  if (!(this->isDiscrete() && useCategories))
+  if (!this->isDiscrete()) // just need to test to make sure all values are set
   {
     for (std::size_t i = 0; i < m_isSet.size(); ++i)
     {
@@ -170,18 +173,44 @@ bool ValueItem::isValidInternal(bool useCategories, const std::set<std::string>&
   }
   else
   {
-    // Discrete Item w/ categories case
     const ValueItemDefinition* def = static_cast<const ValueItemDefinition*>(m_definition.get());
     if (!def)
     {
       return false;
     }
 
-    for (std::size_t i = 0; i < m_isSet.size(); ++i)
+    // Is there a custom function to determine if an enum is relevant?
+    auto customIsEnumRelevant = def->customEnumIsRelevant();
+    if (customIsEnumRelevant)
     {
-      if (!(m_isSet[i] && def->isDiscreteIndexValid(m_discreteIndices[i], categories)))
+      for (std::size_t i = 0; i < m_isSet.size(); ++i)
       {
-        return false;
+        if (!(m_isSet[i] &&
+              customIsEnumRelevant(
+                this, m_discreteIndices[i], useCategories, categories, false, 0)))
+        {
+          return false;
+        }
+      }
+    }
+    else if (useCategories)
+    {
+      for (std::size_t i = 0; i < m_isSet.size(); ++i)
+      {
+        if (!(m_isSet[i] && def->isDiscreteIndexValid(m_discreteIndices[i], categories)))
+        {
+          return false;
+        }
+      }
+    }
+    else // all enum values are valid - just need to make sure all values are set
+    {
+      for (std::size_t i = 0; i < m_isSet.size(); ++i)
+      {
+        if (!m_isSet[i])
+        {
+          return false;
+        }
       }
     }
   }
@@ -277,23 +306,84 @@ bool ValueItem::allowsExpressions() const
   return def->allowsExpressions();
 }
 
-bool ValueItem::setExpression(smtk::attribute::AttributePtr exp)
+bool ValueItem::isAcceptable(const smtk::attribute::AttributePtr& exp) const
 {
   const ValueItemDefinition* def = static_cast<const ValueItemDefinition*>(m_definition.get());
-  if (def->allowsExpressions())
+  if (!def->allowsExpressions())
   {
-    if (!exp)
-    {
-      m_expression->unset();
-      return true;
-    }
-    if (def->isValidExpression(exp))
-    {
-      m_expression->setValue(exp);
-      return true;
-    }
+    return false;
   }
-  return false;
+
+  if (!exp)
+  {
+    return true;
+  }
+
+  if (!def->isValidExpression(exp))
+  {
+    return false;
+  }
+
+  if (this->units() == exp->units())
+  {
+    return true;
+  }
+
+  // Are the units (if any) compatible?
+  if (exp->units().empty())
+  {
+    return true;
+  }
+
+  if (this->units().empty())
+  {
+    return false;
+  }
+
+  const auto& unitSys = def->unitsSystem();
+  // Can't determine if the units are compatible w/o units system
+  if (!unitSys)
+  {
+    return false;
+  }
+
+  bool unitsSupported;
+
+  // Are the item units supported by the units system
+  auto iUnits = unitSys->unit(this->units(), &unitsSupported);
+  if (!unitsSupported)
+  {
+    // the item's units are not supported by the units system
+    return false;
+  }
+
+  // Are the expression units supported by the units system
+  auto eUnits = unitSys->unit(exp->units(), &unitsSupported);
+  if (!unitsSupported)
+  {
+    // the expression's units are not supported by the units system
+    return false;
+  }
+
+  return (unitSys->convert(iUnits, eUnits) != nullptr);
+}
+
+bool ValueItem::setExpression(smtk::attribute::AttributePtr exp)
+{
+  if (!this->isAcceptable(exp))
+  {
+    return false;
+  }
+
+  if (!exp)
+  {
+    m_expression->unset();
+  }
+  else
+  {
+    m_expression->setValue(exp);
+  }
+  return true;
 }
 
 void ValueItem::visitChildren(std::function<void(ItemPtr, bool)> visitor, bool activeChildren)
@@ -499,8 +589,8 @@ Item::Status ValueItem::assign(
     else
     {
       // Do we have the expression in the options' mapping information?
-      Attribute* rawDestExpAtt =
-        options.itemOptions.targetObjectFromSourceId<Attribute>(sourceValueItem->attribute()->id());
+      Attribute* rawDestExpAtt = options.itemOptions.targetObjectFromSourceId<Attribute>(
+        sourceValueItem->expression()->id());
       if (rawDestExpAtt)
       {
         status = this->setExpression(rawDestExpAtt->shared_from_this());
@@ -837,7 +927,9 @@ std::vector<std::string> ValueItem::relevantEnums(
   unsigned int readAccessLevel) const
 {
   const ValueItemDefinition* def = static_cast<const ValueItemDefinition*>(m_definition.get());
-  std::set<std::string> dummy;
+  std::set<std::string> activeCategories;
+  bool useCategories = false;
+
   if (includeCategories)
   {
     // See if we can get the active categories of the related Resource, else ignore categories
@@ -847,10 +939,48 @@ std::vector<std::string> ValueItem::relevantEnums(
       auto aResource = myAttribute->attributeResource();
       if (aResource && aResource->activeCategoriesEnabled())
       {
-        return def->relevantEnums(
-          true, aResource->activeCategories(), includeReadAccess, readAccessLevel);
+        useCategories = true;
+        activeCategories = aResource->activeCategories();
       }
     }
   }
-  return def->relevantEnums(false, dummy, includeReadAccess, readAccessLevel);
+
+  // Is there a custom enum relevant function?
+  auto customIsEnumRelevant = def->customEnumIsRelevant();
+
+  if (!customIsEnumRelevant)
+  {
+    return def->relevantEnums(useCategories, activeCategories, includeReadAccess, readAccessLevel);
+  }
+
+  std::vector<std::string> result;
+  std::size_t i, n = def->numberOfDiscreteValues();
+  for (i = 0; i < n; i++)
+  {
+    if (customIsEnumRelevant(
+          this, i, useCategories, activeCategories, includeReadAccess, readAccessLevel))
+    {
+      result.push_back(def->discreteEnum(i));
+    }
+  }
+  return result;
+}
+
+const std::string& ValueItem::units() const
+{
+  const ValueItemDefinition* def = static_cast<const ValueItemDefinition*>(m_definition.get());
+  return def->units();
+}
+
+std::string ValueItem::supportedUnits() const
+{
+  bool status = false;
+  auto munits = this->units();
+  auto unitsSystem = m_definition->unitsSystem();
+
+  if (!(munits.empty() || (unitsSystem == nullptr)))
+  {
+    auto myUnit = unitsSystem->unit(munits, &status);
+  }
+  return (status ? munits : std::string());
 }

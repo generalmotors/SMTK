@@ -85,13 +85,6 @@ public:
 
   static smtk::attribute::AttributePtr New(
     const std::string& myName,
-    const smtk::attribute::DefinitionPtr& myDefinition)
-  {
-    return smtk::attribute::AttributePtr(new Attribute(myName, myDefinition));
-  }
-
-  static smtk::attribute::AttributePtr New(
-    const std::string& myName,
     const smtk::attribute::DefinitionPtr& myDefinition,
     const smtk::common::UUID& myId)
   {
@@ -346,6 +339,12 @@ public:
   /// a category will be a simulation type like heat transfer, fluid flow, etc.
   const smtk::attribute::Categories& categories() const;
 
+  ///@{
+  ///\brief Returns true if the attribute is valid.
+  ///
+  /// An irrelevant attribute is considered valid since for all intents and purposes it is treated
+  /// as though it does not exist.  A relevant attribute if valid if all of its relevant children items
+  /// are valid
   bool isValid(bool useActiveCategories = true) const;
   bool isValid(const std::set<std::string>& categories) const;
 
@@ -376,11 +375,12 @@ public:
   bool isAboutToBeDeleted() const { return m_aboutToBeDeleted; }
 
   const common::UUID& id() const override { return m_id; }
-  bool setId(const common::UUID& uid) override
-  {
-    m_id = uid;
-    return true;
-  }
+
+  /// Assign an ID to this attribute.
+  ///
+  /// This not supported for attributes.  The Id is set in the constructor and should
+  /// never be changed.
+  bool setId(const common::UUID& uid) override;
 
   // These methods are use primarily by I/O operations.  The include ID corresponds to
   // the include directory information store in the attribute resource and is used
@@ -401,6 +401,38 @@ public:
   // Returns an Evaluator for this Attribute if this Attribute's Definition is
   // registered with an Evaluator, else returns nullptr.
   std::unique_ptr<smtk::attribute::Evaluator> createEvaluator() const;
+
+  ///\brief Return the units associated to the attribute
+  ///
+  /// Returns the units that have been locally set on the attribute, else it will return those
+  /// returned from its definition's units method
+  ///
+  /// This means that the information that the attributes represents
+  /// conceptually has units but unlike attribute Items, does not have a numerical value
+  /// associated with it.  For example an attribute may be used to indicate that a numerical
+  /// field being output by a simulation represents a temperature whose units should be in Kelvin.
+  ///
+  /// If the attribute has no local units set and its definition's units method returns "*", then
+  /// this will return an empty string indicating that the attribute is currently unit-less
+  const std::string& units() const;
+
+  ///\brief Return the units locally set on the attribute
+  const std::string& localUnits() const { return m_localUnits; }
+
+  ///\brief Locally set the units on the attribute
+  ///
+  /// This will fail and return false under the following circumstances:
+  /// 1. There are no units associated with its definition and the newUnits string is not empty
+  /// 2. There is no units system associated with its definition and newUnits is not the same as those on the definition
+  /// 3. newUnits are not supported by the associated units system
+  /// 4. Its definition's units are not "*" or there is no way to convert between the units associated with its definition
+  ///    and newUnits
+  bool setLocalUnits(const std::string& newUnits);
+
+  ///\brief Returns true if the attribute supports units.
+  ///
+  /// An attribute supports units if its definition's units() does not return an empty string.
+  bool supportsUnits() const;
 
   class GuardedLinks
   {
@@ -437,7 +469,6 @@ protected:
     const std::string& myName,
     const smtk::attribute::DefinitionPtr& myDefinition,
     const smtk::common::UUID& myId);
-  Attribute(const std::string& myName, const smtk::attribute::DefinitionPtr& myDefinition);
 
   /// Constructs the attribute from its definition
   void build();
@@ -467,6 +498,7 @@ protected:
   std::size_t m_includeIndex;
   bool m_hasLocalAdvanceLevelInfo[2];
   unsigned int m_localAdvanceLevel[2];
+  std::string m_localUnits;
 };
 
 inline smtk::simulation::UserDataPtr Attribute::userData(const std::string& key) const

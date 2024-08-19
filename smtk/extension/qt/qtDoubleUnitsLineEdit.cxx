@@ -27,10 +27,12 @@
 #include <Qt>
 
 #include "units/Measurement.h"
+#include "units/PreferredUnits.h"
 
 #include <algorithm> // std::sort et al
 #include <sstream>
 
+using namespace smtk::attribute;
 using namespace smtk::extension;
 
 namespace
@@ -147,15 +149,17 @@ qtDoubleUnitsLineEdit* qtDoubleUnitsLineEdit::checkAndCreate(
   qtInputsItem* inputsItem,
   const QString& tooltip)
 {
-  // Get the item definition and see if it specifies dimensional units
-  auto dDef = inputsItem->item()->definitionAs<smtk::attribute::DoubleItemDefinition>();
-  if (dDef->units().empty())
+  // Get the item see if it specifies dimensional units
+  auto dItem = inputsItem->itemAs<DoubleItem>();
+  auto dUnits = dItem->units();
+
+  if (dUnits.empty())
   {
     return nullptr;
   }
 
   // Sanity check that units only supported for numerical values
-  if (dDef->isDiscrete())
+  if (dItem->isDiscrete())
   {
     qWarning() << "Ignoring units for discrete or expression item \""
                << inputsItem->item()->name().c_str() << "\".";
@@ -163,55 +167,37 @@ qtDoubleUnitsLineEdit* qtDoubleUnitsLineEdit::checkAndCreate(
   }
 
   // Get units system
-  auto unitsSystem = dDef->unitsSystem();
-  if (unitsSystem == nullptr)
+  auto unitSystem = dItem->definition()->unitsSystem();
+  if (unitSystem == nullptr)
   {
     return nullptr;
   }
 
   // Try parsing the unit string
   bool parsedOK = false;
-  auto unit = unitsSystem->unit(dDef->units(), &parsedOK);
+  auto unit = unitSystem->unit(dUnits, &parsedOK);
   if (!parsedOK)
   {
-    qWarning() << "Ignoring unrecognized units \"" << dDef->units().c_str() << "\""
+    qWarning() << "Ignoring unrecognized units \"" << dUnits.c_str() << "\""
                << " in attribute item \"" << inputsItem->item()->name().c_str() << "\".";
     return nullptr;
   }
 
-  auto* editor = new qtDoubleUnitsLineEdit(inputsItem, unit, tooltip);
+  auto* editor = new qtDoubleUnitsLineEdit(inputsItem, tooltip);
   return editor;
 }
 
-qtDoubleUnitsLineEdit::qtDoubleUnitsLineEdit(
-  qtInputsItem* item,
-  const units::Unit& unit,
-  const QString& tooltip)
+qtDoubleUnitsLineEdit::qtDoubleUnitsLineEdit(qtInputsItem* item, const QString& tooltip)
   : QLineEdit(item->widget())
   , m_inputsItem(item)
-  , m_unit(unit)
   , m_baseTooltip(tooltip)
   , m_internals(new qtDoubleUnitsLineEdit::qtInternals())
 
 {
-  auto dDef = m_inputsItem->item()->definitionAs<smtk::attribute::DoubleItemDefinition>();
+  auto dItem = m_inputsItem->itemAs<DoubleItem>();
+  auto dUnits = dItem->units();
   // Set placeholder text
-  this->setPlaceholderText(QString::fromStdString(dDef->units()));
-
-  // Get list of compatible units
-  auto compatibleUnits = m_unit.system()->compatibleUnits(m_unit);
-
-  //  create a list of possible units names
-  for (const auto& unit : compatibleUnits)
-  {
-    m_unitChoices.push_back(unit.name().c_str());
-  }
-
-  // Lets remove duplicates and sort the list
-  m_unitChoices.removeDuplicates();
-  m_unitChoices.sort();
-  // Now make the Definition's units appear at the top
-  m_unitChoices.push_front(dDef->units().c_str());
+  this->setPlaceholderText(QString::fromStdString(dUnits));
 
   // Instantiate completer with (empty) string list model
   auto* model = new qtCompleterStringModel(this);
@@ -314,6 +300,21 @@ void qtDoubleUnitsLineEdit::onTextEdited()
 {
   QPalette palette = this->palette();
 
+  auto dItem = m_inputsItem->itemAs<DoubleItem>();
+  auto dUnits = dItem->units();
+  auto unitSystem = dItem->definition()->unitsSystem();
+
+  // Parsing the Item's unit string
+  bool parsedOK = false;
+  auto unit = unitSystem->unit(dUnits, &parsedOK);
+
+  std::shared_ptr<units::PreferredUnits> preferred;
+  auto cit = unitSystem->m_unitContexts.find(unitSystem->m_activeUnitContext);
+  if (cit != unitSystem->m_unitContexts.end())
+  {
+    preferred = cit->second;
+  }
+
   QString text = this->text();
   auto utext = text.toStdString();
   if (utext.empty())
@@ -337,14 +338,48 @@ void qtDoubleUnitsLineEdit::onTextEdited()
       valueString += ' ';
     }
 
+    // Get list of compatible units
+    auto compatibleUnits = unitSystem->compatibleUnits(unit);
+    QStringList unitChoices;
+
+    // Create a list of possible units names:
+    if (preferred)
+    {
+      // We have a context; this provides preferred units as a
+      // developer-ordered list of units, placing dUnits at
+      // position 0 of the suggestions.
+      units::CompatibleUnitOptions opts;
+      opts.m_inputUnitPriority = 0;
+      for (const auto& suggestion : preferred->suggestedUnits(dUnits, opts))
+      {
+        unitChoices.push_back(suggestion.c_str());
+      }
+    }
+    else
+    {
+      // We don't have a unit-system context; just
+      // find compatible units. This may present
+      // duplicates and is definitely not sorted.
+      for (const auto& unit : compatibleUnits)
+      {
+        unitChoices.push_back(unit.name().c_str());
+      }
+      // Lets remove duplicates and sort the list
+      unitChoices.removeDuplicates();
+      unitChoices.sort();
+      // Now make the Item's units appear at the top
+      unitChoices.push_front(dUnits.c_str());
+    }
+
     // Generate the completer strings
-    for (const QString& unit : m_unitChoices)
+    for (const QString& unit : unitChoices)
     {
       QString entry(valueString.c_str());
       entry += unit;
       compatibleList << entry;
     } // for
   }   // if (ok)
+
   auto* model = dynamic_cast<qtCompleterStringModel*>(m_completer->model());
   model->setStringList(compatibleList);
 
@@ -352,9 +387,9 @@ void qtDoubleUnitsLineEdit::onTextEdited()
   m_completer->complete();
 
   // Update background based on current input string
-  bool didParse = false;
-  auto measurement = m_unit.system()->measurement(utext, &didParse);
-  if (!didParse)
+  parsedOK = false;
+  auto measurement = unitSystem->measurement(utext, &parsedOK);
+  if (!parsedOK)
   {
     QColor invalidColor = m_inputsItem->uiManager()->correctedTempInvalidValueColor();
     palette.setColor(QPalette::Base, invalidColor);
@@ -363,7 +398,7 @@ void qtDoubleUnitsLineEdit::onTextEdited()
   }
 
   bool inputHasUnits = !smtk::common::StringUtil::trim(unitsString).empty();
-  bool conformal = measurement.m_units.dimension() == m_unit.dimension();
+  bool conformal = measurement.m_units.dimension() == unit.dimension();
   if (!conformal && inputHasUnits)
   {
     QColor invalidColor = m_inputsItem->uiManager()->correctedInvalidValueColor().lighter(110);
@@ -386,11 +421,11 @@ void qtDoubleUnitsLineEdit::onTextEdited()
     }
     else
     {
-      units::Measurement convertedMsmt = m_unit.system()->convert(measurement, m_unit, &converted);
+      units::Measurement convertedMsmt = unitSystem->convert(measurement, unit, &converted);
       if (!converted)
       {
         std::ostringstream ss;
-        ss << "Failed to convert measurement: " << measurement << " to units: " << m_unit;
+        ss << "Failed to convert measurement: " << measurement << " to units: " << unit;
         qWarning() << ss.str().c_str();
       }
       else
@@ -438,9 +473,9 @@ void qtDoubleUnitsLineEdit::onEditFinished()
   std::string trimmedString = smtk::common::StringUtil::trim(unitsString);
   if (trimmedString.empty())
   {
-    auto dDef = m_inputsItem->item()->definitionAs<smtk::attribute::DoubleItemDefinition>();
+    auto dItem = m_inputsItem->itemAs<DoubleItem>();
     std::ostringstream ss;
-    ss << valueString << ' ' << dDef->units();
+    ss << valueString << ' ' << dItem->units();
     this->blockSignals(true);
     this->setText(QString::fromStdString(ss.str()));
     this->blockSignals(false);
@@ -472,9 +507,9 @@ void qtDoubleUnitsLineEdit::focusOutEvent(QFocusEvent* event)
       if (trimmedString.empty())
       {
         QSignalBlocker blocker(this);
-        auto dDef = m_inputsItem->item()->definitionAs<smtk::attribute::DoubleItemDefinition>();
+        auto dItem = m_inputsItem->itemAs<DoubleItem>();
         std::ostringstream ss;
-        ss << valueString << ' ' << dDef->units();
+        ss << valueString << ' ' << dItem->units();
         this->setText(QString::fromStdString(ss.str()));
       }
     }

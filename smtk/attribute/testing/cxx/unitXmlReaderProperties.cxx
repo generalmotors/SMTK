@@ -64,9 +64,39 @@ int unitXmlReaderProperties(int /*unused*/, char* /*unused*/[])
   smtkTest(
     attRes->properties().at<bool>("pb"), "Resource Bool Property pb was false but should be true");
 
-  // Now lets test the properties on the attribute
+  smtkTest(
+    attRes->properties().contains<std::vector<int>>("pvi"),
+    "Resource does not contains vector<int> Property pvi");
+  smtkTest(
+    attRes->properties().at<std::vector<int>>("pvi")[0] == 10,
+    "Resource's vector<int> Property pvi [0] = "
+      << attRes->properties().at<std::vector<int>>("pvi")[0] << " but should be 10");
+  smtkTest(
+    attRes->properties().contains<std::vector<long>>("pvl"),
+    "Resource does not contains vector<long> Property pvl");
+  smtkTest(
+    attRes->properties().at<std::vector<long>>("pvl")[0] == 1000,
+    "Resource's vector<long> Property pvi [0] = "
+      << attRes->properties().at<std::vector<long>>("pvl")[0] << " but should be 1000");
+  smtkTest(
+    attRes->properties().contains<std::vector<std::string>>("animals"),
+    "Resource does not contains vector<string> Property animals");
+  smtkTest(
+    attRes->properties().at<std::vector<std::string>>("animals")[0] == "the dog",
+    "Resource's vector<string> Property animals [0] = \""
+      << attRes->properties().at<std::vector<std::string>>("animals")[0]
+      << "\" but should be \"the dog\"");
+  // Now lets test the properties on the attribute and definition
   auto att = attRes->findAttribute("foo");
   smtkTest(att != nullptr, "Could not find attribute foo");
+  auto def = att->definition();
+  smtkTest(def != nullptr, "Could not find attribute foo's definition");
+  smtkTest(
+    def->properties().contains<int>("alpha"), "Definition does not contains Int Property alpha");
+  smtkTest(
+    def->properties().at<int>("alpha") == 100,
+    "Attribute Definition Int Property alpha is " << def->properties().at<int>("alpha")
+                                                  << " but should be 100.");
   smtkTest(att->properties().contains<int>("pi"), "Attribute does not contains Int Property pi");
   smtkTest(
     att->properties().contains<double>("pd"), "Attribute does not contains Double Property pd");

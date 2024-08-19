@@ -43,6 +43,9 @@ inline PySharedPtrClass< smtk::attribute::ValueItemDefinition, smtk::attribute::
     .def("enumAdvanceLevel", &smtk::attribute::ValueItemDefinition::enumAdvanceLevel, py::arg("enumValue"))
     .def("hasEnumAdvanceLevel", &smtk::attribute::ValueItemDefinition::hasEnumAdvanceLevel, py::arg("enumValue"))
     .def("enumAdvanceLevelInfo", &smtk::attribute::ValueItemDefinition::enumAdvanceLevelInfo)
+    .def("customEnumIsRelevant", &smtk::attribute::ValueItemDefinition::customEnumIsRelevant)
+    .def("setCustomEnumIsRelevant", &smtk::attribute::ValueItemDefinition::setCustomEnumIsRelevant, py::arg("customEnumIsRelevantFunc"))
+    .def("relevantEnums", &smtk::attribute::ValueItemDefinition::relevantEnums, py::arg("includeCategories"), py::arg("testCategories"), py::arg("includeReadAccess"), py::arg("readAccessLevel"))
     .def("expressionDefinition", &smtk::attribute::ValueItemDefinition::expressionDefinition)
     .def("hasChildItemDefinition", (bool (smtk::attribute::ValueItemDefinition::*)(::std::string const &) const) &smtk::attribute::ValueItemDefinition::hasChildItemDefinition, py::arg("itemName"))
     .def("hasChildItemDefinition", (bool (smtk::attribute::ValueItemDefinition::*)(::std::string const &, ::std::string const &)) &smtk::attribute::ValueItemDefinition::hasChildItemDefinition, py::arg("valueName"), py::arg("itemName"))
@@ -69,6 +72,8 @@ inline PySharedPtrClass< smtk::attribute::ValueItemDefinition, smtk::attribute::
     .def("units", &smtk::attribute::ValueItemDefinition::units)
     .def("usingCommonLabel", &smtk::attribute::ValueItemDefinition::usingCommonLabel)
     .def("valueLabel", &smtk::attribute::ValueItemDefinition::valueLabel, py::arg("element"))
+    .def("hasSupportedUnits", &smtk::attribute::ValueItemDefinition::hasSupportedUnits)
+    .def("supportedUnits", &smtk::attribute::ValueItemDefinition::supportedUnits)
     .def_static("ToItemDefinition", [](const std::shared_ptr<smtk::attribute::ValueItemDefinition> d) {
         return std::dynamic_pointer_cast<smtk::attribute::ItemDefinition>(d);
       })
