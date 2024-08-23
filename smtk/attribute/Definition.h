@@ -11,6 +11,8 @@
 #ifndef smtk_attribute_Definition_h
 #define smtk_attribute_Definition_h
 
+#include "smtk/resource/Component.h"
+
 #include "smtk/CoreExports.h"
 #include "smtk/PublicPointerDefs.h"
 #include "smtk/SharedFromThis.h" // For smtkTypeMacroBase.
@@ -42,7 +44,7 @@ class Resource;
   * single attribute. Instances of a definition should be created
   * through Resource::createAttribute().
   */
-class SMTKCORE_EXPORT Definition : public smtk::enable_shared_from_this<Definition>
+class SMTKCORE_EXPORT Definition : public resource::Component
 {
 public:
   /// Return types for canBeAssociated method
@@ -54,7 +56,10 @@ public:
     Prerequisite //!< A prerequisite association does not yet exist.
   };
 
-  smtkTypeMacroBase(smtk::attribute::Definition);
+  smtkTypeMacro(smtk::attribute::Definition);
+  smtkSuperclassMacro(smtk::resource::Component);
+  smtkSharedFromThisMacro(smtk::resource::PersistentObject);
+
   struct SMTKCORE_EXPORT WeakDefinitionPtrCompare
   {
     bool operator()(
@@ -72,14 +77,31 @@ public:
   };
 
   typedef std::set<WeakDefinitionPtr, WeakDefinitionPtrCompare> WeakDefinitionSet;
-  virtual ~Definition();
+  ~Definition() override;
 
-  // Description:
-  // The type is the identifier that is used to access the
-  // attribute definition through the Resource. It should never change.
+  ///\brief  Returns Definition's type
+  ///
+  /// The type is an additional identifier that can be used to access the
+  /// attribute definition through the Resource. It should never change.
   const std::string& type() const { return m_type; }
 
-  smtk::attribute::ResourcePtr resource() const { return m_resource.lock(); }
+  /// Return the name of the definition - this is the same as its type
+  std::string name() const override { return this->type(); }
+
+  ///\brief Returns the attribute resource that owns the definition
+  smtk::attribute::ResourcePtr attributeResource() const;
+
+  ///\brief Implementation of resource::Component::resource() method
+  const smtk::resource::ResourcePtr resource() const override;
+
+  /// Return a unique identifier for the definition which will be persistent across sessions.
+  const common::UUID& id() const override { return m_id; }
+
+  /// Assign an ID to this definition.
+  ///
+  /// This not supported for definitions.  The Id is set in the constructor and should
+  /// never be changed.
+  bool setId(const common::UUID& myID) override;
 
   ///\brief return the smtk::attribute::Tags associated with the Definition
   const Tags& tags() const { return m_tags; }
@@ -143,17 +165,20 @@ public:
   void setCategoryInheritanceMode(Categories::CombinationMode mode) { m_combinationMode = mode; }
   ///@}
 
-  ///\brief Returns the categories explicitly assigned to the Definition
-  smtk::attribute::Categories::Set& localCategories() { return m_localCategories; }
-  const smtk::attribute::Categories::Set& localCategories() const { return m_localCategories; }
+  ///\brief Returns the category expression explicitly assigned to the Definition
+  smtk::attribute::Categories::Expression& localCategories() { return m_localCategories; }
+  const smtk::attribute::Categories::Expression& localCategories() const
+  {
+    return m_localCategories;
+  }
 
   ///\brief Sets the local categories.
   ///
   /// This method is intended for use by Python applications, because Python code cannot
   /// manipulate the reference returned by the localCategories() method.
-  void setLocalCategories(const smtk::attribute::Categories::Set& catSet)
+  void setLocalCategories(const smtk::attribute::Categories::Expression& catExp)
   {
-    m_localCategories = catSet;
+    m_localCategories = catExp;
   }
 
   /**
@@ -422,6 +447,37 @@ public:
   ///@{
   bool ignoreCategories() const { return m_ignoreCategories; }
   void setIgnoreCategories(bool val) { m_ignoreCategories = val; }
+  ///@}
+
+  ///\brief Return the units associated to the definition
+  ///
+  /// Returns the units that have been locally set on the definition, else if the definition has
+  /// a base definition, then its base definition's units are returned.
+  ///
+  /// This means that the information that the attributes, generated from the definition, represents
+  /// conceptually has units but unlike attribute Items, does not have a numerical value
+  /// associated with it.  For example an attribute may be used to indicate that a numerical
+  /// field being output by a simulation represents a temperature whose units should be in Kelvin.
+  ///
+  /// **Note** A definition's units method returning "*" indicates that its attributes or derived definitions can be assigned
+  /// any supported units
+  const std::string& units() const;
+
+  ///\brief Return the units locally set on the definition
+  const std::string& localUnits() const { return m_localUnits; }
+
+  ///\brief Locally set the units on the definition
+  ///
+  /// This will fail and return false under the following circumstances:
+  /// 1. There is no units system associated with the definition, the definition has a base definition whose units() are
+  ///    not empty,  and newUnits is not the same as those returned from its base definition
+  /// 2. newUnits are not supported by the associated units system
+  /// 3. Its base definition's units are not "*" or there is no way to convert between the units associated with its base definition
+  ///    and newUnits
+  bool setLocalUnits(const std::string& newUnits, bool force = false);
+
+  /// \brief Gets the system of units used by this definition.
+  const std::shared_ptr<units::System>& unitsSystem() const;
 
 protected:
   friend class smtk::attribute::Resource;
@@ -429,7 +485,8 @@ protected:
   Definition(
     const std::string& myType,
     smtk::attribute::DefinitionPtr myBaseDef,
-    smtk::attribute::ResourcePtr myResource);
+    smtk::attribute::ResourcePtr myResource,
+    const smtk::common::UUID& myId);
 
   void clearResource() { m_resource.reset(); }
 
@@ -452,13 +509,14 @@ protected:
   void setItemDefinitionUnitsSystem(const smtk::attribute::ItemDefinitionPtr& itemDef) const;
 
   smtk::attribute::WeakResourcePtr m_resource;
+  smtk::common::UUID m_id;
   int m_version;
   bool m_isAbstract;
   smtk::attribute::DefinitionPtr m_baseDefinition;
   std::string m_type;
   std::string m_label;
   bool m_isNodal;
-  attribute::Categories::Set m_localCategories;
+  attribute::Categories::Expression m_localCategories;
   attribute::Categories m_categories;
   bool m_hasLocalAdvanceLevelInfo[2];
   unsigned int m_localAdvanceLevel[2];
@@ -487,6 +545,7 @@ protected:
   Tags m_tags;
   std::size_t m_includeIndex;
   Categories::CombinationMode m_combinationMode;
+  std::string m_localUnits;
 
 private:
   /// These colors are returned for base definitions w/o set colors

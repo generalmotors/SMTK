@@ -32,6 +32,7 @@ namespace attribute
 SMTKCORE_EXPORT void to_json(nlohmann::json& j, const smtk::attribute::DefinitionPtr& defPtr)
 {
   j["Type"] = defPtr->type();
+  j["ID"] = defPtr->id().toString();
   if (!defPtr->label().empty())
   {
     j["Label"] = defPtr->label();
@@ -78,30 +79,34 @@ SMTKCORE_EXPORT void to_json(nlohmann::json& j, const smtk::attribute::Definitio
   {
     j["Nodal"] = true;
   }
-  // Process Category Info
-  j["CategoryInfo"]["Combination"] = smtk::attribute::Categories::combinationModeAsString(
-    defPtr->localCategories().combinationMode());
 
-  // Inclusion Info
-  if (!defPtr->localCategories().includedCategoryNames().empty())
+  // Does the Definition have local units?
+  if (!defPtr->localUnits().empty())
   {
-    j["CategoryInfo"]["InclusionCombination"] =
-      smtk::attribute::Categories::combinationModeAsString(
-        defPtr->localCategories().inclusionMode());
-    j["CategoryInfo"]["IncludeCategories"] = defPtr->localCategories().includedCategoryNames();
+    j["Units"] = defPtr->localUnits();
   }
 
-  // Exclusion Info
-  if (!defPtr->localCategories().excludedCategoryNames().empty())
+  // Process Local Category Expression
+  if (defPtr->localCategories().isSet())
   {
-    j["CategoryInfo"]["ExclusionCombination"] =
-      smtk::attribute::Categories::combinationModeAsString(
-        defPtr->localCategories().exclusionMode());
-    j["CategoryInfo"]["ExcludeCategories"] = defPtr->localCategories().excludedCategoryNames();
+    // If the expression string is not empty save it, else we are dealing with
+    // a trivial All Pass/Reject constraint
+    if (!defPtr->localCategories().expression().empty())
+    {
+      j["CategoryExpression"]["Expression"] = defPtr->localCategories().expression();
+    }
+    else if (defPtr->localCategories().allPass())
+    {
+      j["CategoryExpression"]["PassMode"] = "All";
+    }
+    else
+    {
+      j["CategoryExpression"]["PassMode"] = "None";
+    }
   }
 
-  // Inheritance Option
-  j["CategoryInfo"]["InheritanceMode"] =
+  // Inheritance Option - This is always needed
+  j["CategoryExpression"]["InheritanceMode"] =
     smtk::attribute::Categories::combinationModeAsString(defPtr->categoryInheritanceMode());
 
   // Save Color Information
@@ -160,20 +165,28 @@ SMTKCORE_EXPORT void to_json(nlohmann::json& j, const smtk::attribute::Definitio
     j["Tags"] = tagInfo;
   }
 
+  smtk::attribute::ResourcePtr attResource = defPtr->attributeResource();
+  if (!attResource)
+  {
+    smtkErrorMacro(
+      smtk::io::Logger::instance(),
+      "When converting to json, definition " << defPtr->label() << " has an invalid resourcePtr");
+    return;
+  }
+
   auto associationRuleForDef =
-    defPtr->resource()->associationRules().associationRulesForDefinitions().find(defPtr->type());
+    attResource->associationRules().associationRulesForDefinitions().find(defPtr->type());
   if (
-    associationRuleForDef !=
-    defPtr->resource()->associationRules().associationRulesForDefinitions().end())
+    associationRuleForDef != attResource->associationRules().associationRulesForDefinitions().end())
   {
     j["AssociationRule"] = associationRuleForDef->second;
   }
 
   auto dissociationRuleForDef =
-    defPtr->resource()->associationRules().dissociationRulesForDefinitions().find(defPtr->type());
+    attResource->associationRules().dissociationRulesForDefinitions().find(defPtr->type());
   if (
     dissociationRuleForDef !=
-    defPtr->resource()->associationRules().dissociationRulesForDefinitions().end())
+    attResource->associationRules().dissociationRulesForDefinitions().end())
   {
     j["DissociationRule"] = dissociationRuleForDef->second;
   }
@@ -189,8 +202,7 @@ SMTKCORE_EXPORT void from_json(
   {
     return;
   }
-  smtk::attribute::ResourcePtr attResource =
-    std::dynamic_pointer_cast<smtk::attribute::Resource>(defPtr->resource());
+  smtk::attribute::ResourcePtr attResource = defPtr->attributeResource();
   if (attResource == nullptr)
   {
     smtkErrorMacro(
@@ -248,12 +260,59 @@ SMTKCORE_EXPORT void from_json(
     defPtr->setIgnoreCategories(*result);
   }
 
+  result = j.find("Units");
+  if (result != j.end())
+  {
+    defPtr->setLocalUnits(*result);
+  }
+
   // Process Category Info ()
   smtk::attribute::Categories::CombinationMode cmode;
-  auto catInfo = j.find("CategoryInfo");  // Current Form
-  auto categories = j.find("Categories"); // Old Deprecated Form
+  auto catExp = j.find("CategoryExpression"); // Current Form
+  auto catInfo = j.find("CategoryInfo");      // Old Form since 05/24
+  auto categories = j.find("Categories");     // Old Deprecated Form
 
-  if (catInfo != j.end())
+  if (catExp != j.end())
+  {
+    auto inheritanceMode = catExp->find("InheritanceMode");
+    if (inheritanceMode != catExp->end())
+    {
+      if (smtk::attribute::Categories::combinationModeFromString(*inheritanceMode, cmode))
+      {
+        defPtr->setCategoryInheritanceMode(cmode);
+      }
+      else
+      {
+        smtkErrorMacro(
+          smtk::io::Logger::instance(),
+          "When converting json, definition "
+            << defPtr->label()
+            << " has an invalid category inheritance mode = " << *inheritanceMode);
+      }
+    }
+    // Is this a trivial reject / pass constraint
+    auto passMode = catExp->find("PassMode");
+    if (passMode != catExp->end())
+    {
+      if (*passMode == "All")
+      {
+        defPtr->localCategories().setAllPass();
+      }
+      else if (*passMode == "None")
+      {
+        defPtr->localCategories().setAllReject();
+      }
+    }
+    else
+    {
+      auto catExpression = catExp->find("Expression");
+      if (catExpression != catExp->end())
+      {
+        defPtr->localCategories().setExpression(*catExpression);
+      }
+    }
+  }
+  else if (catInfo != j.end())
   {
     auto inheritanceMode = catInfo->find("InheritanceMode");
     if (inheritanceMode != catInfo->end())

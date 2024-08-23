@@ -44,19 +44,19 @@ struct Action : nothing<Rule>
 /// together with their respective rules using inheritance (as is PEGTL's wont).
 
 /// Construct a new filter rule specific to a given type.
-template<typename Type>
+template<typename Type, template<typename T> class RuleClass>
 struct TypeNameAction
 {
   template<typename Input>
   static void apply(const Input&, Rules& rules)
   {
-    rules.emplace_back(new RuleFor<Type>());
+    rules.emplace_back(new RuleClass<Type>());
   }
 };
 
 /// Append the filter rule with a means of discriminating property keys to match
 /// the rule input.
-template<typename Type>
+template<typename Type, template<typename T> class RuleClass>
 struct NameAction
 {
   template<typename Input>
@@ -64,7 +64,7 @@ struct NameAction
   {
     std::unique_ptr<Rule>& rule = rules.data().back();
     std::string name = input.string();
-    static_cast<RuleFor<Type>*>(rule.get())->acceptableKeys =
+    static_cast<RuleClass<Type>*>(rule.get())->acceptableKeys =
       [name](const PersistentObject& object) -> std::vector<std::string> {
       std::vector<std::string> returnValue;
       if (object.properties().contains<Type>(name))
@@ -78,7 +78,7 @@ struct NameAction
 
 /// Append the filter rule with a means of discriminating property keys to match
 /// the rule input.
-template<typename Type>
+template<typename Type, template<typename T> class RuleClass>
 struct RegexAction
 {
   template<typename Input>
@@ -86,7 +86,7 @@ struct RegexAction
   {
     std::unique_ptr<Rule>& rule = rules.data().back();
     smtk::regex regex(input.string());
-    static_cast<RuleFor<Type>*>(rule.get())->acceptableKeys =
+    static_cast<RuleClass<Type>*>(rule.get())->acceptableKeys =
       [regex](const PersistentObject& object) -> std::vector<std::string> {
       std::vector<std::string> returnValue;
       for (const auto& key : object.properties().get<Type>().keys())
@@ -103,7 +103,7 @@ struct RegexAction
 
 /// Append the filter rule with a means of discriminating property values to
 /// match the rule input.
-template<typename Type>
+template<typename Type, template<typename T> class RuleClass>
 struct ValueAction
 {
   template<typename Input>
@@ -111,7 +111,7 @@ struct ValueAction
   {
     std::unique_ptr<Rule>& rule = rules.data().back();
     Type value = Property<Type>::convert(input.string());
-    static_cast<RuleFor<Type>*>(rule.get())->acceptableValue = [value](const Type& val) -> bool {
+    static_cast<RuleClass<Type>*>(rule.get())->acceptableValue = [value](const Type& val) -> bool {
       return val == value;
     };
   }
@@ -119,7 +119,7 @@ struct ValueAction
 
 /// Append the filter rule with a means of discriminating property values to
 /// match the rule input.
-template<typename Type>
+template<typename Type, template<typename T> class RuleClass>
 struct ValueRegexAction
 {
   template<typename Input>
@@ -127,7 +127,7 @@ struct ValueRegexAction
   {
     std::unique_ptr<Rule>& rule = rules.data().back();
     smtk::regex regex(input.string());
-    static_cast<RuleFor<Type>*>(rule.get())->acceptableValue = [regex](const Type& val) -> bool {
+    static_cast<RuleClass<Type>*>(rule.get())->acceptableValue = [regex](const Type& val) -> bool {
       return smtk::regex_match(val, regex);
     };
   }

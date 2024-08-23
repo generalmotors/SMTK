@@ -87,10 +87,18 @@ public:
   /// Link from an attribute to persistent objects
   /// which manifest, exhibit, or possess the attribute.
   static constexpr smtk::resource::Links::RoleType AssociationRole = -1;
+  static constexpr smtk::resource::Links::RoleType associationRole()
+  {
+    return Resource::AssociationRole;
+  }
 
   /// Link from an attribute item to persistent objects
   /// which the item contains or references.
   static constexpr smtk::resource::Links::RoleType ReferenceRole = -2;
+  static constexpr smtk::resource::Links::RoleType referenceRole()
+  {
+    return Resource::ReferenceRole;
+  }
 
   ~Resource() override;
 
@@ -98,10 +106,14 @@ public:
 
   smtk::attribute::DefinitionPtr createDefinition(
     const std::string& typeName,
-    const std::string& baseTypeName = "");
+    const std::string& baseTypeName = "",
+    const smtk::common::UUID& id = smtk::common::UUID::null());
+
   smtk::attribute::DefinitionPtr createDefinition(
     const std::string& name,
-    attribute::DefinitionPtr baseDefiniiton);
+    attribute::DefinitionPtr baseDefiniiton,
+    const smtk::common::UUID& id = smtk::common::UUID::null());
+
   // Description:
   // For simplicity, only Definitions without any children can be currently
   // removed (external nodes).
@@ -123,12 +135,17 @@ public:
    */
   bool setDefaultNameSeparator(const std::string& separator);
 
-  smtk::attribute::AttributePtr createAttribute(const std::string& name, const std::string& type);
   smtk::attribute::AttributePtr createAttribute(attribute::DefinitionPtr def);
   smtk::attribute::AttributePtr createAttribute(const std::string& type);
   smtk::attribute::AttributePtr createAttribute(
     const std::string& name,
-    attribute::DefinitionPtr def);
+    const std::string& type,
+    const smtk::common::UUID& id = smtk::common::UUID::null());
+  smtk::attribute::AttributePtr createAttribute(
+    const std::string& name,
+    attribute::DefinitionPtr def,
+    const smtk::common::UUID& id = smtk::common::UUID::null());
+
   bool removeAttribute(smtk::attribute::AttributePtr att);
   smtk::attribute::AttributePtr findAttribute(const std::string& name) const;
   smtk::attribute::AttributePtr findAttribute(const smtk::common::UUID& id) const;
@@ -173,6 +190,7 @@ public:
     std::vector<smtk::attribute::AttributePtr>& result) const;
 
   smtk::attribute::DefinitionPtr findDefinition(const std::string& type) const;
+  smtk::attribute::DefinitionPtr findDefinition(const smtk::common::UUID& id) const;
 
   /// Return true if the Resource has a Definition with the requested type
   bool hasDefinition(const std::string& type) const;
@@ -210,13 +228,6 @@ public:
   const double* advanceLevelColor(int level) const;
   void setAdvanceLevelColor(int level, const double* l_color);
 
-  // For Reader classes
-  smtk::attribute::AttributePtr
-  createAttribute(const std::string& name, const std::string& type, const smtk::common::UUID& id);
-  smtk::attribute::AttributePtr createAttribute(
-    const std::string& name,
-    attribute::DefinitionPtr def,
-    const smtk::common::UUID& id);
   std::string createUniqueName(const std::string& type) const;
 
   void finalizeDefinitions();
@@ -241,7 +252,7 @@ public:
   const std::set<std::string>& activeCategories() const { return m_activeCategories; }
   ///@}
 
-  bool passActiveCategoryCheck(const smtk::attribute::Categories::Set& cats) const;
+  bool passActiveCategoryCheck(const smtk::attribute::Categories::Expression& cats) const;
   bool passActiveCategoryCheck(const smtk::attribute::Categories& cats) const;
 
   void addView(smtk::view::ConfigurationPtr);
@@ -413,20 +424,39 @@ public:
   bool setTemplateVersion(std::size_t templateVersion) override;
   std::size_t templateVersion() const override { return m_templateVersion; }
 
-  /// Create an empty, un-managed clone of this resource instance.
+  ///\brief Create an empty, un-managed clone of this resource instance's meta information.
   ///
   /// If \a options has copyTemplateData() set to true, then this resource's
   /// Definition instances will be copied to the output resources.
+  /// In addition, unitsSystem and Analysis information is copied.
   std::shared_ptr<smtk::resource::Resource> clone(
     smtk::resource::CopyOptions& options) const override;
 
-  /// Copy data from the \a other resource into this resource, as specified by \a options.
+  ///\brief Copy data from the \a other resource into this resource, as specified by \a options.
+  ///
+  /// In the case of attribute resources - only the structure defined by the source's attributes
+  /// are copied (note their items' values), as well as properties, views, geometry (if any),
+  /// and active category information.
+  /// Note that the following attribute copy options will always be assumed to be set and cannot
+  /// be overridden by \a options:
+  ///   CopyUUID(false)
+  ///   PerformAssignment(false)
+  ///   CopyDefinition(false)
+
   bool copyInitialize(
     const std::shared_ptr<const smtk::resource::Resource>& other,
     smtk::resource::CopyOptions& options) override;
 
-  /// Copy relations (associations, references) from the \a source resource
-  /// into this resource, as specified by \a options.
+  ///\brief Copy attribute resource contents.
+  ///
+  /// Besides items' values this includes:
+  ///    Relations (associations, references) from the \a source resource
+  ///    into this resource, as specified by \a options.
+  ///    Associated resource information.
+  ///    Link information
+  ///
+  /// Note that since the structure of the resource is assumed to be copied
+  /// in copyFinalize, the attribute copy option DisableCopyAttributes always set to true.
   bool copyFinalize(
     const std::shared_ptr<const smtk::resource::Resource>& source,
     smtk::resource::CopyOptions& options) override;
@@ -463,6 +493,7 @@ protected:
     m_attributeClusters;
   std::map<std::string, smtk::attribute::AttributePtr> m_attributes;
   std::map<smtk::common::UUID, smtk::attribute::AttributePtr> m_attributeIdMap;
+  std::map<smtk::common::UUID, smtk::attribute::DefinitionPtr> m_definitionIdMap;
 
   std::map<
     smtk::attribute::DefinitionPtr,
@@ -525,6 +556,14 @@ inline smtk::attribute::DefinitionPtr Resource::findDefinition(const std::string
   std::map<std::string, smtk::attribute::DefinitionPtr>::const_iterator it;
   it = m_definitions.find(typeName);
   return (it == m_definitions.end()) ? smtk::attribute::DefinitionPtr() : it->second;
+}
+
+inline smtk::attribute::DefinitionPtr Resource::findDefinition(
+  const smtk::common::UUID& defId) const
+{
+  std::map<smtk::common::UUID, DefinitionPtr>::const_iterator it;
+  it = m_definitionIdMap.find(defId);
+  return (it == m_definitionIdMap.end()) ? smtk::attribute::DefinitionPtr() : it->second;
 }
 
 inline bool Resource::hasDefinition(const std::string& typeName) const

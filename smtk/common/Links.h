@@ -21,6 +21,7 @@ SMTK_THIRDPARTY_PRE_INCLUDE
 #include <boost/multi_index_container.hpp>
 SMTK_THIRDPARTY_POST_INCLUDE
 
+#include <cassert>
 #include <functional>
 #include <limits>
 #include <set>
@@ -272,27 +273,19 @@ public:
     const id_type&,
     const left_type&,
     const right_type&,
-    const role_type& role = undefinedRole);
+    const role_type& role);
 
   /// Since the base type may be large, this method facilitates its insertion
   /// using move semantics.
-  std::pair<iterator, bool> insert(
-    base_type&&,
-    const id_type&,
-    const left_type&,
-    const right_type&,
-    const role_type& role = undefinedRole);
+  std::pair<iterator, bool>
+  insert(base_type&&, const id_type&, const left_type&, const right_type&, const role_type& role);
 
   /// If the base_type is default-constructible, this insertion method allows
   /// you to omit the base_type instance. A new base_type will be used and the
   /// left and right types are passed to the new link using move semantics.
   template<typename return_value = typename std::pair<iterator, bool>>
   typename std::enable_if<std::is_default_constructible<base_type>::value, return_value>::type
-  insert(
-    const id_type& id,
-    const left_type& left,
-    const right_type& right,
-    const role_type& role = undefinedRole)
+  insert(const id_type& id, const left_type& left, const right_type& right, const role_type& role)
   {
     return insert(std::move(base_type()), id, left, right, role);
   }
@@ -404,6 +397,16 @@ public:
     return modified;
   }
 
+  /// Visit all links by ID
+  void visitLinks(std::function<void(const id_type& id)> visitor) const
+  {
+    const auto& self = this->Parent::template get<smtk::common::detail::Id>();
+    for (const auto& entry : self)
+    {
+      visitor(entry.id);
+    }
+  }
+
   /// Return a set of ids corresponding to the input value for the tagged search
   /// criterion.
   template<typename tag>
@@ -507,15 +510,6 @@ public:
     return values;
   }
 };
-
-template<
-  typename id_type,
-  typename left_type,
-  typename right_type,
-  typename role_type,
-  typename base_type>
-const role_type Links<id_type, left_type, right_type, role_type, base_type>::undefinedRole =
-  std::numeric_limits<role_type>::lowest();
 
 template<
   typename id_type,
